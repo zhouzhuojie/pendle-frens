@@ -1,7 +1,13 @@
 node_modules/
 dist/
+coverage/
 .scratch/
+
 *.log
-.DS_Store
 .env
 .env.*
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+
+      # Offline only. The live suite is skipped unless PF_LIVE is set, so CI
+      # never spends Pendle computing units.
+      - run: npm test
+      - run: npm run build
+
+      - name: Assert the built extension is loadable
+        run: |
+          for f in dist/manifest.json dist/panel/index.html dist/panel.js \
+                   dist/background.js dist/icons/icon-16.png dist/icons/icon-128.png \
+                   dist/brand/mark.svg; do
+            test -f "$f" || { echo "missing $f"; exit 1; }
+          done

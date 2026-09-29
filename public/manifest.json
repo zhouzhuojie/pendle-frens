@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pendle Frens",
-  "version": "0.11.0",
+  "version": "1.0.0",
   "description": "Find risk-adjusted fixed-yield PT opportunities on Pendle, simulate entry / exit / roll-over costs, and track them. Read-only.",
   "minimum_chrome_version": "120",
   "action": {

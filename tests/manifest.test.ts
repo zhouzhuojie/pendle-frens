@@ -18,6 +18,14 @@ describe('manifest', () => {
     expect(Number(manifest.minimum_chrome_version)).toBeGreaterThanOrEqual(114);
   });
 
+  it('keeps the shipped version in step with package.json', () => {
+    // These drifted apart once (manifest 0.11.0 vs package 0.1.0), which is
+    // invisible until you try to publish and Chrome rejects the zip.
+    const pkg = JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as Record<string, unknown>;
+    expect(manifest.version).toBe(pkg.version);
+    expect(String(manifest.version)).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
   it('requests the minimum permission set', () => {
     expect(manifest.permissions).toEqual(['storage', 'sidePanel']);
   });

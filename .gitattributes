@@ -1,0 +1,6 @@
+# Normalise everything to LF so a Windows checkout does not rewrite the tree.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

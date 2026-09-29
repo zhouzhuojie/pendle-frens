@@ -1,10 +1,28 @@
 {
   "name": "pendle-frens",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Pendle Frens — a read-only Chrome extension that helps you find risk-adjusted PT fixed-yield opportunities on Pendle and simulate entry / exit / roll-over costs.",
+  "description": "A read-only Chrome side panel for finding risk-adjusted fixed-yield PT opportunities on Pendle, and for pricing what an entry, exit or roll-over costs at your size.",
   "type": "module",
   "license": "MIT",
+  "author": "Rex Zhou <zhouzhuojie@gmail.com>",
+  "homepage": "https://github.com/zhouzhuojie/pendle-frens#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhouzhuojie/pendle-frens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zhouzhuojie/pendle-frens/issues"
+  },
+  "keywords": [
+    "pendle",
+    "chrome-extension",
+    "manifest-v3",
+    "defi",
+    "fixed-yield",
+    "yield",
+    "typescript"
+  ],
   "engines": {
     "node": ">=20.11"
   },

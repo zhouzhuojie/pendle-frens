@@ -1,0 +1,28 @@
+{
+  "name": "pendle-frens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pendle Frens — a read-only Chrome extension that helps you find risk-adjusted PT fixed-yield opportunities on Pendle and simulate entry / exit / roll-over costs.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "npm run typecheck && vite build",
+    "build:dev": "vite build --mode development",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "brand": "node scripts/gen-brand.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.278",
+    "@types/node": "^22.20.4",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-label="Pendle Frens">
+<rect width="1200" height="320" fill="#030713"/>
+<g transform="translate(230 160) scale(198.4)">
+<circle cx="0" cy="-0.1023" r="0.3935" fill="#ededef"/><rect x="-0.009" y="-0.3411" width="0.018" height="0.842" fill="#0a2656"/><circle cx="-0.0934" cy="0.4093" r="0.0858" fill="#0a2656"/><circle cx="0.0853" cy="0.4093" r="0.0898" fill="#00adac"/>
+</g>
+<text x="380" y="163" fill="#ededef" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="72" font-weight="600" letter-spacing="16" dominant-baseline="central">PENDLE FRENS</text>
+</svg>

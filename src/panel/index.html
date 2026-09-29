@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pendle Frens — Pendle PT navigator</title>
+    <link rel="stylesheet" href="./panel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <img class="logo" src="/brand/mark.svg" alt="" width="22" height="22" />
+          <span class="brand-name">Pendle Frens</span>
+        </div>
+        <div id="bench" class="bench"></div>
+        <button id="refresh" class="icon-btn" title="Refresh markets and benchmark">⟳</button>
+      </header>
+      <nav id="tabs" class="tabs" aria-label="Sections"></nav>
+      <main id="view" class="view-host"></main>
+      <footer class="statusbar"><div id="status"></div></footer>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

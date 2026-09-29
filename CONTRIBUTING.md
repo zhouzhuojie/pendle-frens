@@ -85,10 +85,13 @@ Icons, the header mark and the README banner are generated from one geometry def
 dependency — `zlib` and a hand-rolled CRC32:
 
 ```bash
-npm run brand   # → public/icons/*.png, public/brand/mark.svg, assets/brand/banner.svg
+npm run brand   # → public/icons/*.png, public/brand/mark.svg, docs/brand/banner.svg
 ```
 
-`scripts/brand.mjs` records how each number was measured off the artwork in `assets/brand/source/`. Do
+Only `public/` is packaged into the extension, so the banner and the source artwork live under `docs/`
+and are never shipped in a build.
+
+`scripts/brand.mjs` records how each number was measured off the artwork in `docs/brand/source/`. Do
 not hand-edit the generated files, and do not add a raster pipeline.
 
 Two things to know before you touch it:

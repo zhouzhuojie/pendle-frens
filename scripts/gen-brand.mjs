@@ -5,12 +5,15 @@
  *
  * Emits, with no image dependency at all (`zlib` plus a hand-rolled CRC32):
  *
- *   public/icons/icon-{16,32,48,128}.png   toolbar icons
- *   public/brand/mark.svg                  in-app header logo
- *   assets/brand/banner.svg                wide wordmark, for the README
+ *   public/icons/icon-{16,32,48,128}.png   toolbar icons      (shipped)
+ *   public/brand/mark.svg                  in-app header logo (shipped)
+ *   docs/brand/banner.svg                  wide wordmark, for the README
+ *
+ * Only `public/` is packaged into the extension, so anything that is merely
+ * documentation — the banner and the source artwork — lives under `docs/`.
  *
  * The geometry comes from `scripts/brand.mjs`, which records how each number was
- * measured off the source artwork in `assets/brand/source/`. Redrawing rather
+ * measured off the source artwork in `docs/brand/source/`. Redrawing rather
  * than downscaling the JPEG is deliberate: the source is lossy, has no alpha and
  * carries a black backdrop, and its defining feature — a hairline rule — would
  * disappear at 16 px. Vector redraw gives crisp edges, real transparency, and
@@ -216,10 +219,10 @@ ${body}
 
 const ICON_DIR = join(ROOT, 'public', 'icons');
 const BRAND_DIR = join(ROOT, 'public', 'brand');
-const ASSET_DIR = join(ROOT, 'assets', 'brand');
+const BRAND_DOCS_DIR = join(ROOT, 'docs', 'brand');
 mkdirSync(ICON_DIR, { recursive: true });
 mkdirSync(BRAND_DIR, { recursive: true });
-mkdirSync(ASSET_DIR, { recursive: true });
+mkdirSync(BRAND_DOCS_DIR, { recursive: true });
 
 for (const size of Object.keys(SIZE_TUNING).map(Number)) {
   const file = join(ICON_DIR, `icon-${size}.png`);
@@ -228,5 +231,5 @@ for (const size of Object.keys(SIZE_TUNING).map(Number)) {
 }
 writeFileSync(join(BRAND_DIR, 'mark.svg'), markSvg(40));
 console.log('wrote ./public/brand/mark.svg');
-writeFileSync(join(ASSET_DIR, 'banner.svg'), bannerSvg());
-console.log('wrote ./assets/brand/banner.svg');
+writeFileSync(join(BRAND_DOCS_DIR, 'banner.svg'), bannerSvg());
+console.log('wrote ./docs/brand/banner.svg');

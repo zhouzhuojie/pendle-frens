@@ -2,7 +2,7 @@
  * The brand mark, as numbers.
  *
  * Every value below was measured off the source artwork in
- * `assets/brand/source/` (784×1168 and 1168×784 JPEGs), not invented, so the
+ * `docs/brand/source/` (784×1168 and 1168×784 JPEGs), not invented, so the
  * generated icon and the vector mark cannot drift from the supplied design:
  *
  *   disc   centre (391.5, 514)  r 219.2   colour #ededef

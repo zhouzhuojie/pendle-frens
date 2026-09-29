@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/banner.svg" alt="Pendle Frens" width="520">
+  <img src="docs/brand/banner.svg" alt="Pendle Frens" width="520">
 </p>
 
 # Pendle Frens
@@ -37,15 +37,24 @@ npm install && npm run build
 Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and select the `dist/`
 folder. Click the toolbar icon to open the side panel. Requires Chrome 120+.
 
-## What each tab does
+## The four tabs
 
 | Tab | Answers |
 | --- | --- |
 | **Discover** | Which PTs are worth a look — ranked by a score you can audit, with a stated reason for every market that is hidden |
 | **Simulate** | Entry, exit and roll-over quoted together, plus a maturity plan and a value-over-time chart |
 | **Favorites** | A shortlist with the rate drift since you starred it |
-| **Method** | Every weight, threshold and formula, in plain language |
 | **Settings** | Thresholds, chains, benchmark override, cache controls |
+
+There is no fifth tab for the methodology: **Method** opens from any score, or from *How the score works*
+above the list. It explains every weight, threshold and formula in plain language.
+
+## Screenshots
+
+| Discover | Simulate — the three paths | Simulate — cost detail |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/discover.png" width="260" alt="Discover: ranked market cards with a score and the hidden-market summary"> | <img src="docs/screenshots/simulate-scenarios.png" width="260" alt="Simulate: three paths compared, the maturity plan, and the value-over-time chart"> | <img src="docs/screenshots/simulate-costs.png" width="260" alt="Simulate: full cost breakdown and per-scenario detail"> |
+| Ranked markets, each score opening its own explanation | Three paths compared, the maturity plan, and value over time | Every cost, the route, and both fee derivations |
 
 ## The score
 
@@ -174,4 +183,4 @@ tests/              offline unit + jsdom render tests, plus opt-in live tests
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The brand artwork in `assets/brand/` is covered by the same licence.
+MIT — see [LICENSE](LICENSE). The brand artwork in `docs/brand/` is covered by the same licence.

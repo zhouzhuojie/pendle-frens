@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-02
+
 ### Added
 
 - The market detail page now shows Pendle's wider data, all on the existing API host:
@@ -50,5 +52,6 @@ Initial public release.
   (`domain/protocol.ts`); the curated protocol registry was removed. The app
   makes no protocol-level judgement anywhere and never calls a protocol "safe".
 
-[Unreleased]: https://github.com/zhouzhuojie/pendle-frens/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/zhouzhuojie/pendle-frens/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/zhouzhuojie/pendle-frens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zhouzhuojie/pendle-frens/releases/tag/v1.0.0

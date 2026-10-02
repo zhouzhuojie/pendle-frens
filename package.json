@@ -1,6 +1,6 @@
 {
   "name": "pendle-frens",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "A read-only Chrome side panel for finding risk-adjusted fixed-yield PT opportunities on Pendle, and for pricing what an entry, exit or roll-over costs at your size.",
   "type": "module",

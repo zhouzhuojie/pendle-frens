@@ -12,6 +12,9 @@ import type {
   EntrySimulation,
   ExitSimulation,
   HistoryPoint,
+  LimitOrderBook,
+  LiveRate,
+  LoopOption,
   Market,
   MarketScore,
   MarketSnapshot,
@@ -44,6 +47,10 @@ import {
   getBenchmarks,
   getConvert,
   getHistory,
+  getLimitOrderBook,
+  getLiveRate,
+  getLongHistory,
+  getLoopOptions,
   getMarkets,
 } from '../lib/api/client';
 import {
@@ -102,6 +109,32 @@ export interface SimState {
 
 const EMPTY_RESULTS: SimResults = { entry: null, exit: null, roll: null, destinationEntry: null };
 
+/**
+ * The lazy extras a market's detail page needs, loaded on open and cached in
+ * memory. Every field is optional: one failing endpoint must not cost the page
+ * the other three, so they are fetched with `allSettled` and applied as they
+ * arrive.
+ */
+export interface MarketExtras {
+  /** Daily points, up to years back. Context only — never fed to the score. */
+  longHistory?: HistoryPoint[];
+  /** Resting limit orders plus AMM depth. */
+  book?: LimitOrderBook;
+  /** Money markets this PT can be looped through. */
+  loop?: LoopOption[];
+  /** Block-fresh spot rate. */
+  live?: LiveRate;
+  loadedAt?: string;
+  loading: boolean;
+  /** Names of the endpoints that failed, for an honest footnote. */
+  errors: string[];
+}
+
+const EMPTY_EXTRAS: MarketExtras = { loading: false, errors: [] };
+
+/** How long a loaded detail page stays fresh before reopening refetches it. */
+const EXTRAS_TTL_MS = 2 * 60_000;
+
 export interface AppState {
   settings: Settings;
   favorites: FavoriteItem[];
@@ -110,6 +143,7 @@ export interface AppState {
   benchmark: Benchmark;
   scores: Map<string, MarketScore>;
   history: Map<string, HistoryPoint[]>;
+  extras: Map<string, MarketExtras>;
   tab: TabId;
   detailMarketId: string | null;
   /** The "how scoring works" explainer is a view, like the market detail. */
@@ -129,6 +163,7 @@ export function createInitialState(): AppState {
     benchmark: resolveBenchmark(null, null),
     scores: new Map(),
     history: new Map(),
+    extras: new Map(),
     tab: 'discover',
     detailMarketId: null,
     methodOpen: false,
@@ -391,8 +426,13 @@ export class App {
     this.state.detailMarketId = marketId;
     this.state.methodOpen = false;
     this.state.tab = 'discover';
+    // Mark the extras as loading before the first paint, so the new panels do
+    // not flash "unavailable" for a frame before the fetch starts.
+    const extras = this.extrasFor(marketId);
+    if (!extras.loadedAt) this.state.extras.set(marketId, { ...extras, loading: true });
     this.render();
     void this.loadHistory(marketId);
+    void this.loadDetailExtras(marketId);
   }
 
   closeDetail(): void {
@@ -454,6 +494,46 @@ export class App {
       this.setStatus(`History unavailable: ${error instanceof Error ? error.message : String(error)}`, 'error');
       this.render();
     }
+  }
+
+  extrasFor(marketId: string): MarketExtras {
+    return this.state.extras.get(marketId) ?? EMPTY_EXTRAS;
+  }
+
+  /**
+   * Load the detail page's optional extras (long history, order book, looping
+   * venues, live rate). Runs on open, never on a list render. Each endpoint is
+   * independent: a failure degrades one panel and is named in a footnote.
+   */
+  async loadDetailExtras(marketId: string, force = false): Promise<void> {
+    const market = this.marketById(marketId);
+    if (!market) return;
+    const existing = this.state.extras.get(marketId);
+    if (!force && existing?.loadedAt && Date.now() - new Date(existing.loadedAt).getTime() < EXTRAS_TTL_MS) return;
+
+    this.state.extras.set(marketId, { ...existing, loading: true, errors: [] });
+    if (this.state.detailMarketId === marketId) this.render();
+
+    const [long, book, loop, live] = await Promise.allSettled([
+      getLongHistory(market.chainId, market.address, force),
+      getLimitOrderBook(market.chainId, market.address, force),
+      getLoopOptions(market.chainId, market.pt.address, force),
+      getLiveRate(market.chainId, market.address, force),
+    ]);
+
+    const errors: string[] = [];
+    const next: MarketExtras = { loading: false, loadedAt: new Date().toISOString(), errors };
+    if (long.status === 'fulfilled') next.longHistory = long.value;
+    else errors.push('long-range history');
+    if (book.status === 'fulfilled') next.book = book.value;
+    else errors.push('limit-order book');
+    if (loop.status === 'fulfilled') next.loop = loop.value;
+    else errors.push('leverage venues');
+    if (live.status === 'fulfilled') next.live = live.value;
+    else errors.push('live rate');
+
+    this.state.extras.set(marketId, next);
+    if (this.state.detailMarketId === marketId) this.render();
   }
 
   async toggleFavorite(market: Market): Promise<void> {

@@ -3,15 +3,28 @@
  *
  * Endpoints used (all public, no API key):
  *   GET  /v1/{chainId}/markets            rich chain-scoped markets (assets, decimals, prices)
- *   GET  /v2/markets/all                  cross-chain markets (risk notes, TVL details)
- *   GET  /v3/{chainId}/markets/{addr}/historical-data
+ *   GET  /v2/markets/all                  cross-chain markets (risk notes, TVL, yield sources,
+ *                                          points, emissions, looping venues)
+ *   GET  /v3/{chainId}/markets/{addr}/historical-data   [time_frame=day for the long view]
+ *   GET  /v2/limit-orders/book/{chainId}  resting limit orders + AMM depth
+ *   GET  /v1/pt-looping/loop/pts/{chainId}/{pt}/looping leverage venues + risk panel
+ *   GET  /v1/sdk/{chainId}/markets/{addr}/swapping-prices  block-fresh spot rate
  *   POST /v3/sdk/{chainId}/convert        transaction/quote builder (entry, exit, roll)
  *
  * All requests must run in the extension background context (see service-worker)
  * so that host_permissions bypass CORS for the US Treasury API too.
  */
 
-import type { ConvertParams, ConvertQuote, ConvertRoute, HistoryPoint, Market } from '../domain/types';
+import type {
+  ConvertParams,
+  ConvertQuote,
+  ConvertRoute,
+  HistoryPoint,
+  LimitOrderBook,
+  LiveRate,
+  LoopOption,
+  Market,
+} from '../domain/types';
 import { chainMeta } from '../domain/chains';
 import { mapLimit, withRetry } from '../util/async';
 import { getJson, isRetryable, postJson } from './http';
@@ -19,8 +32,13 @@ import {
   type RawHistoryResponse,
   type RawMarketV1,
   type RawMarketV2,
+  type RawOrderBook,
+  type RawSwappingPrices,
   mergeMarkets,
   normalizeHistory,
+  normalizeLimitOrderBook,
+  normalizeLiveRate,
+  normalizeLoopOptions,
 } from './normalize';
 
 export const PENDLE_API = 'https://api-v2.pendle.finance/core';
@@ -91,6 +109,39 @@ export async function fetchHistory(chainId: number, marketAddress: string): Prom
   const url = `${PENDLE_API}/v3/${chainId}/markets/${marketAddress}/historical-data?fields=${fields}`;
   const body = await withRetry(() => getJson<RawHistoryResponse>(url), { shouldRetry: isRetryable });
   return normalizeHistory(body);
+}
+
+/**
+ * Daily history. Pendle caps every series at ~1440 points, so hourly covers
+ * only ~2 months while daily reaches back years — the window the score's
+ * stability factor deliberately does *not* use, because it would then mix
+ * regimes.
+ */
+export async function fetchLongHistory(chainId: number, marketAddress: string): Promise<HistoryPoint[]> {
+  const fields = 'impliedApy,ptPrice,ytPrice,lpPrice,underlyingApy';
+  const url = `${PENDLE_API}/v3/${chainId}/markets/${marketAddress}/historical-data?time_frame=day&fields=${fields}`;
+  const body = await withRetry(() => getJson<RawHistoryResponse>(url), { shouldRetry: isRetryable });
+  return normalizeHistory(body);
+}
+
+export async function fetchLimitOrderBook(chainId: number, marketAddress: string): Promise<LimitOrderBook> {
+  const url = `${PENDLE_API}/v2/limit-orders/book/${chainId}?market=${marketAddress}&precisionDecimal=2&includeAmm=true`;
+  const body = await withRetry(() => getJson<RawOrderBook>(url), { attempts: 2, shouldRetry: isRetryable });
+  return normalizeLimitOrderBook(body);
+}
+
+/** Money markets this PT can be looped through, with Pendle's risk panel. */
+export async function fetchLoopOptions(chainId: number, ptAddress: string): Promise<LoopOption[]> {
+  const url = `${PENDLE_API}/v1/pt-looping/loop/pts/${chainId}/${ptAddress}/looping`;
+  const body = await withRetry(() => getJson<unknown>(url), { attempts: 2, shouldRetry: isRetryable });
+  return normalizeLoopOptions(body);
+}
+
+/** Block-fresh spot rate; lighter than a convert quote for a ticker. */
+export async function fetchLiveRate(chainId: number, marketAddress: string): Promise<LiveRate> {
+  const url = `${PENDLE_API}/v1/sdk/${chainId}/markets/${marketAddress}/swapping-prices`;
+  const body = await withRetry(() => getJson<RawSwappingPrices>(url), { shouldRetry: isRetryable });
+  return normalizeLiveRate(body);
 }
 
 export interface ConvertApiInput extends ConvertParams {}

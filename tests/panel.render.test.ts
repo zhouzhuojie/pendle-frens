@@ -13,7 +13,17 @@ import { resolveBenchmark } from '../src/lib/api/treasury';
 import type { EntrySimulation, ExitSimulation, HistoryPoint, MarketSnapshot, RollSimulation, FavoriteItem } from '../src/lib/domain/types';
 import { makeMarket, makeQuote, makeRoute } from './fixtures';
 
-const marketA = makeMarket({ id: '1-0xa', address: '0xa', name: 'reUSD market', protocol: 're.xyz' });
+const marketA = makeMarket({
+  id: '1-0xa',
+  address: '0xa',
+  name: 'reUSD market',
+  protocol: 're.xyz',
+  points: [{ key: 'Asseto', type: 'multiplier', pendleAsset: 'basic', value: 40, perDollarLp: null }],
+  yieldRange: { min: 0.09, max: 0.28 },
+  ytBreakdown: {
+    categories: [{ label: 'Protocol Yield', apy: 0.117, items: [{ id: '1-0xsy', apy: 0.117, tags: ['INTEREST', 'AUTO'], source: null }] }],
+  },
+});
 const marketB = makeMarket({
   id: '1-0xb',
   address: '0xb',
@@ -71,6 +81,7 @@ function makeState(): AppState {
     benchmark: resolveBenchmark(null, null),
     scores: new Map(),
     history: new Map([[marketA.id, history]]),
+    extras: new Map(),
     tab: 'discover',
     detailMarketId: null,
     methodOpen: false,
@@ -451,6 +462,67 @@ describe('side panel rendering', () => {
     const titles = [...view.querySelectorAll('details.disclosure .disclosure-title')].map((n) => n.textContent);
     expect(titles).toContain('Market data & contracts');
     expect(titles).toContain('More history statistics');
+  });
+
+  it('adds yield provenance, leverage and the order book once the extras load', () => {
+    app.state.detailMarketId = marketA.id;
+    app.state.extras.set(marketA.id, {
+      loading: false,
+      errors: [],
+      longHistory: Array.from({ length: 30 }, (_, i) => ({
+        timestamp: new Date(Date.now() - (30 - i) * 86_400_000).toISOString(),
+        impliedApy: 0.1 + i / 1000,
+        ptPrice: 0.98,
+        totalTvl: 1,
+        underlyingApy: 0.07,
+      })),
+      book: {
+        long: [{ impliedApy: 0.091, limitOrderSize: '91779259', ammSize: '0' }],
+        short: [{ impliedApy: 0.092, limitOrderSize: '0', ammSize: '900' }],
+      },
+      live: { impliedApy: 0.117, ptPerUnderlying: 1.02, underlyingPerPt: 0.98 },
+      loop: [
+        {
+          chainId: 1,
+          protocol: 'Morpho',
+          moneyMarketName: 'Morpho',
+          moneyMarketAddress: '0xmm',
+          url: null,
+          marketUrl: null,
+          debtSymbol: 'USDC',
+          debtDecimals: 6,
+          lltv: 0.915,
+          borrowApy: 0.047,
+          borrowApy7dAvg: 0.0486,
+          maxLeverage: 8.89,
+          liquidityUsd: 98_874,
+          totalSupplyUsd: 1_280_572,
+          supplyCapUsd: null,
+          maxApy: 0.0867,
+          reference: { positionUsd: 50_000, leverage: 8.89, fixedApy: 0.084, borrowApy: 0.0837 },
+          utilization: 0.913,
+          risks: {
+            overallLabel: 'Overall Medium Risk',
+            overallLevel: 'low',
+            items: [{ name: 'PT Price', label: 'No Risk', level: 'none', summary: 'Linear oracle.', rationale: null }],
+            ptOracleType: 'linear',
+            debtOracleType: 'marketPrice',
+          },
+        },
+      ],
+    });
+    app.render();
+
+    expect(view.textContent).toContain('Yield & rewards');
+    expect(view.querySelectorAll('.provenance li').length).toBeGreaterThan(0);
+    expect(view.textContent).toContain('Leverage (PT looping)');
+    expect(view.textContent).toContain('Max leverage');
+    expect(view.textContent).toContain('PT Price'); // Pendle's own risk item
+    expect(view.textContent).toContain('Long-range history (daily)');
+    expect(view.textContent).toContain('Live now');
+
+    const titles = [...view.querySelectorAll('details.disclosure .disclosure-title')].map((n) => n.textContent);
+    expect(titles).toContain('Limit orders');
   });
 
   it('explains protocol depth instead of judging the protocol', () => {

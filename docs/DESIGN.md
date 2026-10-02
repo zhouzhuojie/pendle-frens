@@ -173,6 +173,36 @@ Two rules keep the page honest: a metric with no decision meaning is never allow
 grid, and no generated sentence may claim more than the data supports — the payout is labelled "before
 fees, at today's price", and an off-peg accounting asset is stated as a loss rather than smoothed over.
 
+## The live-data panels, and who each number belongs to
+
+The Pendle AI research (the `pendle-ai` plugin/MCP marketplace) documented endpoints on the **same**
+`api-v2.pendle.finance` host the app already calls, so the detail page gained six signals with no new
+host permission and no runtime dependency. They are additive, and none of them touch the score:
+
+| Signal | Endpoint | What it answers |
+| --- | --- | --- |
+| Yield provenance | `/v2/markets/all` (already fetched) | Where the underlying/floating yield comes from |
+| Rewards & points | `/v2/markets/all` | What else the market pays, and to whom |
+| Limit orders | `/v2/limit-orders/book/{chain}` | Is a better fixed rate resting than the AMM |
+| Leverage / looping | `/v1/pt-looping/loop/pts/{chain}/{pt}/looping` | Can I lever it, at what modelled APY and risk |
+| Long-range history | `/v3/{chain}/markets/{addr}/historical-data?time_frame=day` | Durability across regimes, not just 2 months |
+| Live rate | `/v1/sdk/{chain}/markets/{addr}/swapping-prices` | A block-fresh spot rate |
+
+Three honesty rules govern the panels:
+
+1. **Every reward says who receives it.** Pendle's APY breakdowns are per asset; the LP and YT groups
+   include rewards a PT holder never receives, and PENDLE emissions go to LPs. Nothing sums them into
+   "your yield" (`domain/rewards.ts`).
+2. **The order book is rate-only.** The live payload mixes limit and AMM sizes on scales it does not
+   document, so `domain/book.ts` compares rates and returns no sizes at all — a made-up dollar depth
+   would be worse than no depth.
+3. **Looping is Pendle's estimate.** `domain/looping.ts` re-states Pendle's own leverage identity
+   (`fixed × L − borrow × (L − 1)`) at the venue's maximum so the number is checkable, and every surface
+   shows liquidation risk and Pendle's own risk panel beside it.
+
+The long daily history is deliberately **not** fed to the stability factor: the score is calibrated on
+the recent hourly regime, and mixing years of daily points into it would move scores with no explanation.
+
 ## The domain math
 
 - **`decimal.ts`** — exact `string ↔ BigInt` base-unit conversion. 18-decimal token amounts exceed
@@ -194,6 +224,8 @@ fees, at today's price", and an off-peg accounting asset is stated as a loss rat
   protocol depth instead".
 - **`decision.ts`** — the PT decision brief: payout, entry cost, liquidity read and the for/against lists,
   all derived from the snapshot so the detail view stays dumb; see "The detail page answers the decision".
+- **`rewards.ts` / `book.ts` / `looping.ts`** — the live-data helpers: yield provenance and rewards,
+  a rate-only order-book read, and the looping summary. See "The live-data panels".
 
 ## The fee identity
 

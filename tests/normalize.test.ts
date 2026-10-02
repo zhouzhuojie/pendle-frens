@@ -5,6 +5,9 @@ import {
   mergeMarkets,
   normalizeAsset,
   normalizeHistory,
+  normalizeLimitOrderBook,
+  normalizeLiveRate,
+  normalizeLoopOptions,
   normalizeMarket,
 } from '../src/lib/api/normalize';
 
@@ -47,6 +50,32 @@ const rawV2: RawMarketV2 = {
   chainId: 1,
   address: '0xmarket',
   isPrime: false,
+  isVolatile: false,
+  marketType: 'discrete_yield',
+  icon: 'https://storage.googleapis.com/logo.svg',
+  points: [{ key: 'Asseto', type: 'multiplier', pendleAsset: 'basic', value: 40, perDollarLp: null }],
+  lpApyBreakdown: {
+    categories: [
+      { label: 'LP Rewards', apy: 0.21, items: [{ id: 'PENDLE', apy: 0.21, tags: ['INCENTIVE', 'BOOSTABLE'] }] },
+    ],
+  },
+  ytApyBreakdown: {
+    categories: [{ label: 'Protocol Yield', apy: 0.117, items: [{ id: '1-0xsy', apy: 0.117, tags: ['INTEREST', 'AUTO'] }] }],
+  },
+  pendleEmission: { totalIncentive: 405.6, tvlIncentive: 3.9, feeIncentive: 1.1, discretionaryIncentive: 400, limitOrderIncentive: 0.5 },
+  limitOrderIncentive: { impliedApy: 0.164, long: { minApy: 0.16, maxApy: 0.168 }, short: { minApy: 0.16, maxApy: 0.168 } },
+  externalProtocols: {
+    pt: [
+      {
+        protocol: { id: 'morpho', name: 'Morpho', category: 'money market', url: 'https://app.morpho.org' },
+        subtitle: 'USDC',
+        liquidity: 12_030_288,
+        borrowApy: 0.0888,
+        maxLtv: 0.915,
+        maxLoopingApy: 0.337,
+      },
+    ],
+  },
   marketInfo: {
     assetDescription: '<p>reUSD is a <b>stable</b> token</p>',
     riskInvolved: '<p>Can go negative</p>',
@@ -62,6 +91,9 @@ const rawV2: RawMarketV2 = {
     impliedApy: 0.115,
     underlyingApy: 0.0699,
     feeRate: 0.00204,
+    yieldRange: { min: 0.09, max: 0.28 },
+    ptRoi: 0.0289,
+    ytRoi: -0.288,
   },
 };
 
@@ -115,6 +147,33 @@ describe('normalizeMarket', () => {
     expect(market!.info.withdrawalNote).toBe('Wait several days');
   });
 
+  it('carries the yield-source, reward and looping fields from the v2 payload', () => {
+    expect(market!.isVolatile).toBe(false);
+    expect(market!.marketType).toBe('discrete_yield');
+    expect(market!.icon).toContain('storage.googleapis.com');
+    expect(market!.points).toHaveLength(1);
+    expect(market!.points[0]!.key).toBe('Asseto');
+    expect(market!.ytBreakdown!.categories[0]!.label).toBe('Protocol Yield');
+    expect(market!.lpBreakdown!.categories[0]!.apy).toBeCloseTo(0.21, 6);
+    expect(market!.emissions!.totalIncentive).toBeCloseTo(405.6, 1);
+    expect(market!.limitOrderIncentive!.impliedApy).toBeCloseTo(0.164, 6);
+    expect(market!.yieldRange).toEqual({ min: 0.09, max: 0.28 });
+    expect(market!.externalProtocols[0]!.name).toBe('Morpho');
+    expect(market!.externalProtocols[0]!.debtSymbol).toBe('USDC');
+    expect(market!.externalProtocols[0]!.maxLoopingApy).toBeCloseTo(0.337, 6);
+    expect(market!.ptRoi).toBeCloseTo(0.0289, 6);
+  });
+
+  it('leaves the new fields empty when the payload omits them', () => {
+    const bare = normalizeMarket(rawV1, { chainId: 1, address: '0xmarket' });
+    expect(bare!.points).toEqual([]);
+    expect(bare!.lpBreakdown).toBeNull();
+    expect(bare!.emissions).toBeNull();
+    expect(bare!.yieldRange).toBeNull();
+    expect(bare!.externalProtocols).toEqual([]);
+    expect(bare!.isVolatile).toBe(false);
+  });
+
   it('returns null when required assets are missing', () => {
     expect(normalizeMarket({ address: '0xabc', chainId: 1 }, null)).toBeNull();
   });
@@ -147,5 +206,79 @@ describe('normalizeHistory', () => {
     expect(points).toHaveLength(2);
     expect(points[0]!.impliedApy).toBeCloseTo(0.11, 6);
     expect(points[1]!.impliedApy).toBeNull();
+  });
+});
+
+describe('normalizeLimitOrderBook', () => {
+  it('keeps rate levels and raw size strings untouched', () => {
+    const book = normalizeLimitOrderBook({
+      longYieldEntries: [{ impliedApy: 0.091, limitOrderSize: '91779259', ammSize: '0' }],
+      shortYieldEntries: [{ impliedApy: 0.092, limitOrderSize: '0', ammSize: '9361037507029135851519' }],
+    });
+    expect(book.long).toHaveLength(1);
+    expect(book.long[0]!.limitOrderSize).toBe('91779259');
+    expect(book.short[0]!.ammSize).toBe('9361037507029135851519');
+  });
+
+  it('returns empty sides for a missing payload', () => {
+    expect(normalizeLimitOrderBook({})).toEqual({ long: [], short: [] });
+  });
+});
+
+describe('normalizeLoopOptions', () => {
+  const single = {
+    options: [
+      {
+        chainId: 1,
+        protocol: 'Morpho',
+        moneyMarketName: 'Morpho',
+        moneyMarketAddress: '0xMM',
+        debtSymbol: 'USDC',
+        debtDecimals: 6,
+        data: {
+          lltv: 0.915,
+          borrowApy: 0.047,
+          borrowApy7dAvg: 0.0486,
+          maxLeverage: 8.89,
+          liquidityUsd: 98_874,
+          maxApy: 0.0867,
+          reference: { positionUsd: 50_000, leverage: 8.89, fixedApy: 0.084, borrowApy: 0.0837 },
+        },
+        risks: {
+          overall: { label: 'Overall Medium Risk', level: 'low' },
+          items: [{ name: 'PT Price', status: { label: 'No Risk', level: 'none' }, summary: 'Linear', detail: { rationale: 'Because.' } }],
+          ptOracleType: 'linear',
+          debtOracleType: 'marketPrice',
+        },
+      },
+    ],
+  };
+
+  it('reads the single-PT response and its risk panel', () => {
+    const parsed = normalizeLoopOptions(single);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.moneyMarketAddress).toBe('0xmm');
+    expect(parsed[0]!.maxLeverage).toBeCloseTo(8.89, 2);
+    expect(parsed[0]!.reference!.leverage).toBeCloseTo(8.89, 2);
+    expect(parsed[0]!.risks!.overallLevel).toBe('low');
+    expect(parsed[0]!.risks!.items[0]!.level).toBe('none');
+    expect(parsed[0]!.risks!.items[0]!.rationale).toBe('Because.');
+  });
+
+  it('reads the chain-list shape too', () => {
+    expect(normalizeLoopOptions([{ ptAddress: '0xpt', info: single }])).toHaveLength(1);
+  });
+
+  it('returns nothing for an unknown payload', () => {
+    expect(normalizeLoopOptions(null)).toEqual([]);
+  });
+});
+
+describe('normalizeLiveRate', () => {
+  it('maps the spot rates', () => {
+    const rate = normalizeLiveRate({ underlyingTokenToPtRate: 1.4096, ptToUnderlyingTokenRate: 0.0007, impliedApy: 0.1614 });
+    expect(rate.impliedApy).toBeCloseTo(0.1614, 6);
+    expect(rate.ptPerUnderlying).toBeCloseTo(1.4096, 6);
+    expect(rate.underlyingPerPt).toBeCloseTo(0.0007, 6);
   });
 });

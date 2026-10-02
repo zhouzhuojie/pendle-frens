@@ -16,7 +16,10 @@ server, no accounts and no user data. Worth reporting:
 
 - a way to make the extension execute remote or injected code;
 - a permission it requests that it does not need, or a request to a host outside `host_permissions`;
-- anything that moves data off the machine beyond the two documented API hosts;
+- anything that moves data off the machine beyond the two documented API hosts. The off-by-default
+  **Load market logos** setting is the only thing that may: it fetches each market's logo from Pendle's
+  image CDN (`storage.googleapis.com`). If you believe a request leaves those hosts while the setting is
+  off, that is worth reporting;
 - a compromised dependency or build step — the extension ships **zero** runtime dependencies, so this
   should stay a short list;
 - a quotation path that could mislead a user into signing something they did not intend. Note that the

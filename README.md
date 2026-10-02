@@ -81,6 +81,30 @@ It measures size and breadth, **never trust** — a large protocol can still fai
 protocol-level judgement anywhere and never calls a protocol "safe". See
 [DESIGN.md](docs/DESIGN.md#no-registry-measure-protocol-depth-instead).
 
+## Beyond the score: the rest of Pendle's data
+
+Pendle's API publishes more than the score uses, and the detail page shows it — always labelled with
+*who* it applies to, because most of it is not the PT holder's:
+
+- **Yield provenance** — the provider's own split of a market's yield (underlying interest, PT
+  convergence, PENDLE and external rewards), each group marked as applying to the underlying, the YT
+  side or LP positions.
+- **Rewards & points** — points programmes and weekly PENDLE emissions, each saying who earns it.
+  Emissions go to LPs, not to PT holders.
+- **Limit orders** — whether resting orders exist and at what fixed rate, plus the maker incentive.
+  Rates only: the provider returns sizes in units it does not document, so the panel never invents a
+  dollar depth.
+- **Leverage (PT looping)** — the money markets that accept this PT as looping collateral, with the
+  venue's maximum leverage, borrow rate (7-day average) and Pendle's own risk panel. The
+  *net-at-max-leverage* figure is our arithmetic on top of Pendle's inputs, and the liquidation risk
+  is stated beside it.
+- **Long-range history** — daily points back to Pendle's ~1440-point cap (years, not weeks), kept
+  separate from the hourly series the score reads.
+- **Live rate** — a block-fresh spot quote, shown when it differs from the snapshot.
+
+**None of this feeds the score.** The score stays the six documented factors, so new data cannot
+silently change a verdict.
+
 ## Cost forensics
 
 Every quote carries a **Route, fees and price impact** block built from the quote's own transaction
@@ -149,6 +173,10 @@ install — 27 lines, no network, no state, no timer. Because nothing runs in th
 never opens the panel spends **zero** API units. `tests/manifest.test.ts` asserts all of this, so the
 permission list cannot creep in unnoticed.
 
+The one way a request can leave those two hosts is the off-by-default **Load market logos** setting:
+turning it on fetches each market's logo from Pendle's image CDN (`storage.googleapis.com`), which tells
+that host which markets you are viewing. It is off by default, and the default is a local monogram.
+
 ## Develop
 
 ```bash
@@ -170,7 +198,8 @@ the panel never messages a worker. Worth running before a release.
 ```
 src/lib/api/        Pendle + U.S. Treasury clients, raw→domain normalizers, and client.ts
                     (fetch + TTL cache + single-flight — the only thing the panel calls)
-src/lib/domain/     pure logic: types, chains, protocol, decision, score, screen, history, simulate, route
+src/lib/domain/     pure logic: types, chains, protocol, decision, rewards, book, looping, score,
+                    screen, history, simulate, route
 src/lib/storage/    chrome.storage access layer
 src/background/     the MV3 service worker: side-panel registration, nothing else
 src/panel/          panel controller, components, and one file per view

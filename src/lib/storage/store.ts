@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   minLiquidityUsd: 1_000_000,
   gasPriceGwei: 5,
   showRiskNotes: true,
+  remoteLogos: false,
 };
 
 export const DEFAULT_BENCHMARK_SECURITY = DEFAULT_SECURITY;

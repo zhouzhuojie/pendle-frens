@@ -156,3 +156,41 @@ export function externalButton(label: string, url: string, className = 'btn btn-
 export function linkInline(label: string, onClick: () => void): HTMLElement {
   return el('button', { class: 'link-inline', text: label, on: { click: onClick } });
 }
+
+/**
+ * A market's mark: initials on a hue derived from its id.
+ *
+ * Pendle offers a logo URL, but loading it would make a request to a third
+ * host (currently `storage.googleapis.com`) and reveal which markets a reader is
+ * looking at. The default is therefore a local monogram; the `remoteLogos`
+ * setting opts into the real image, `no-referrer`, for people who want it.
+ */
+export function avatar(
+  symbol: string,
+  seed: string,
+  iconUrl: string | null,
+  opts: { large?: boolean; remote?: boolean } = {},
+): HTMLElement {
+  if (opts.remote && iconUrl) {
+    return el('img', {
+      class: `avatar avatar-img${opts.large ? ' avatar-large' : ''}`,
+      attrs: { src: iconUrl, alt: symbol, loading: 'lazy', referrerpolicy: 'no-referrer' },
+    });
+  }
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) % 360;
+  const node = el('span', {
+    class: `avatar${opts.large ? ' avatar-large' : ''}`,
+    text: initials(symbol),
+    title: symbol,
+    attrs: { 'aria-hidden': 'true' },
+  });
+  node.style.setProperty('--avatar-hue', String(hash));
+  return node;
+}
+
+function initials(text: string): string {
+  const cleaned = text.replace(/[^a-zA-Z0-9]/g, '');
+  if (cleaned === '') return '?';
+  return cleaned.slice(0, 2).toUpperCase();
+}

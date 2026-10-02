@@ -10,7 +10,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { fetchChainMarkets, fetchHistory, fetchNativePrice, convert } from '../src/lib/api/pendle';
+import {
+  fetchChainMarkets,
+  fetchHistory,
+  fetchLimitOrderBook,
+  fetchLiveRate,
+  fetchLongHistory,
+  fetchLoopOptions,
+  fetchNativePrice,
+  convert,
+} from '../src/lib/api/pendle';
 import { fetchTreasuryBenchmarks, resolveBenchmark } from '../src/lib/api/treasury';
 import { analyzeHistory, stabilityScore } from '../src/lib/domain/history';
 import { findSuccessorMarket } from '../src/lib/domain/successor';
@@ -77,9 +86,8 @@ describe.skipIf(!LIVE)('live integration', () => {
       expect(withProtocols).toBeGreaterThan(chain.markets.length * 0.5);
 
       // Pendle never fills `auditedUrl` — verified empty on all 586 markets of
-      // Ethereum + Arbitrum — so the registry is the only source of audit links,
-      // and the flag must not fire for protocols it does know (re.xyz was the
-      // false "no audit link" the user reported).
+      // Ethereum + Arbitrum — so the app no longer maintains audit links of its
+      // own, and the old "no audit link" flag must not fire for any protocol.
       const auditedByPendle = chain.markets.filter((m) => m.info.auditedUrl).length;
       const reUsd = chain.markets.find((m) => m.underlyingAsset.symbol === 'reUSD' && m.protocol === 're.xyz');
       // eslint-disable-next-line no-console
@@ -360,5 +368,43 @@ describe.skipIf(!LIVE)('live integration', () => {
       );
     },
     120_000,
+  );
+
+  it(
+    'reads the new Pendle AI endpoints: daily history, book, looping, spot rate',
+    async () => {
+      const chain = await fetchChainMarkets(1);
+
+      const withPoints = chain.markets.filter((m) => m.points.length > 0).length;
+      const withBreakdown = chain.markets.filter((m) => m.lpBreakdown || m.ytBreakdown).length;
+      const withLoop = chain.markets.filter((m) => m.externalProtocols.length > 0).length;
+      // eslint-disable-next-line no-console
+      console.log(`market-payload extras: ${withPoints} with points, ${withBreakdown} with a breakdown, ${withLoop} loopable`);
+
+      const market = chain.markets
+        .filter((m) => new Date(m.expiry).getTime() > Date.now() + 30 * 86_400_000 && m.liquidityUsd > 5_000_000)
+        .sort((a, b) => b.liquidityUsd - a.liquidityUsd)[0]!;
+      expect(market).toBeDefined();
+
+      const [daily, book, loop, live] = await Promise.all([
+        fetchLongHistory(1, market.address),
+        fetchLimitOrderBook(1, market.address),
+        fetchLoopOptions(1, market.pt.address),
+        fetchLiveRate(1, market.address),
+      ]);
+
+      expect(daily.length).toBeGreaterThan(0);
+      expect(daily[0]!.impliedApy).not.toBeNull();
+      expect(book.long.length + book.short.length).toBeGreaterThan(0);
+      expect(live.impliedApy).not.toBeNull();
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `${market.name}: daily n=${daily.length}, book ${book.long.length}/${book.short.length}, loop venues=${loop.length}${
+          loop[0] ? ` (${loop[0].moneyMarketName} max ${loop[0].maxLeverage?.toFixed(1) ?? '?'}×)` : ''
+        }, live ${((live.impliedApy ?? 0) * 100).toFixed(2)}%`,
+      );
+    },
+    180_000,
   );
 });

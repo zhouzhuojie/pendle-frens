@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The market detail page now shows Pendle's wider data, all on the existing API host:
+  - yield provenance (where the underlying/floating yield comes from) and points/reward programmes,
+    each labelled with who receives it;
+  - the limit-order book in rate terms, plus the maker incentive;
+  - PT looping venues with maximum leverage, borrow rate and Pendle's own risk panel, and our
+    net-at-max-leverage check beside it;
+  - daily history back to Pendle's ~1440-point cap (years), kept separate from the hourly series the
+    score reads;
+  - a block-fresh live spot rate when it differs from the snapshot.
+- Market logos behind an off-by-default Settings toggle; the default is a local monogram that makes no
+  third-party request.
+
+### Changed
+
+- Discover cards show a market monogram and Loopable / Variable badges.
+
 ## [1.0.0] - 2026-10-02
 
 Initial public release.

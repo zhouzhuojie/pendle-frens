@@ -1,7 +1,7 @@
 import type { App, AssetClassFilter, Candidate, SortKey } from '../app';
 import { screenMarkets, summarizeHidden } from '../../lib/domain/screen';
 import { append, clear, el } from '../dom';
-import { chip, field, linkInline, scoreBlock, stat, statGrid } from '../components';
+import { avatar, chip, field, linkInline, scoreBlock, stat, statGrid } from '../components';
 import { formatCompactUsd, formatPct, formatSignedPct } from '../../lib/domain/format';
 import { chainName } from '../../lib/domain/chains';
 
@@ -201,18 +201,25 @@ function marketCard(app: App, candidate: Candidate): HTMLElement {
       scoreBlock(score),
       el(
         'div',
-        { class: 'card-title' },
-        el('button', {
-          class: 'link-title',
-          text: `${market.name} · ${market.underlyingAsset.symbol}`,
-          on: { click: () => app.openDetail(market.id) },
-        }),
+        { class: 'card-title-row' },
+        avatar(market.underlyingAsset.symbol, market.id, market.icon, { remote: app.state.settings.remoteLogos }),
         el(
           'div',
-          { class: 'card-sub' },
-          chip(market.protocol, 'muted'),
-          chip(chainName(market.chainId), 'muted'),
-          market.isPrime ? chip('Prime', 'good') : null,
+          { class: 'card-title' },
+          el('button', {
+            class: 'link-title',
+            text: `${market.name} · ${market.underlyingAsset.symbol}`,
+            on: { click: () => app.openDetail(market.id) },
+          }),
+          el(
+            'div',
+            { class: 'card-sub' },
+            chip(market.protocol, 'muted'),
+            chip(chainName(market.chainId), 'muted'),
+            market.isPrime ? chip('Prime', 'good') : null,
+            market.externalProtocols.length > 0 ? chip('Loopable', 'neutral') : null,
+            market.isVolatile ? chip('Variable', 'warn') : null,
+          ),
         ),
       ),
       el('button', {

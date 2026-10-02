@@ -81,6 +81,11 @@ export function renderSettings(app: App): HTMLElement {
       hint(
         'The extension talks only to the two public APIs below. No analytics, no remote code, no wallet access. Everything you save stays in chrome.storage.local.',
       ),
+      toggle(
+        'Load market logos from Pendle’s image CDN (off: a local monogram; on: one request to storage.googleapis.com, which reveals the markets you view)',
+        settings.remoteLogos,
+        (checked) => save({ remoteLogos: checked }),
+      ),
       el(
         'div',
         { class: 'row wrap' },

@@ -23,9 +23,27 @@
  * for: `sidePanel.setPanelBehavior` at install. It touches no network.
  */
 
-import { convert as convertApi, fetchHistory, fetchMarkets, fetchNativePrice } from './pendle';
+import {
+  convert as convertApi,
+  fetchHistory,
+  fetchLimitOrderBook,
+  fetchLiveRate,
+  fetchLongHistory,
+  fetchLoopOptions,
+  fetchMarkets,
+  fetchNativePrice,
+} from './pendle';
 import { fetchTreasuryBenchmarks } from './treasury';
-import type { Benchmark, ChainMarkets, ConvertParams, MarketSnapshot } from '../domain/types';
+import type {
+  Benchmark,
+  ChainMarkets,
+  ConvertParams,
+  HistoryPoint,
+  LimitOrderBook,
+  LiveRate,
+  LoopOption,
+  MarketSnapshot,
+} from '../domain/types';
 import { isExpired } from '../domain/screen';
 import {
   getCachedBenchmark,
@@ -51,6 +69,15 @@ export const HISTORY_TTL_MS = 30 * 60_000;
 /** A monthly official series: no point asking more than twice a day. */
 export const BENCHMARK_TTL_MS = 6 * 60 * 60_000;
 export const NATIVE_PRICE_TTL_MS = 10 * 60_000;
+/**
+ * Detail-page extras. Daily history and looping venues are slow-moving; the
+ * order book and the spot rate are not, so they get short windows. All four are
+ * fetched lazily when a market's detail page opens, never on a list render.
+ */
+export const LONG_HISTORY_TTL_MS = 30 * 60_000;
+export const BOOK_TTL_MS = 2 * 60_000;
+export const LOOP_TTL_MS = 30 * 60_000;
+export const LIVE_RATE_TTL_MS = 60_000;
 
 /**
  * In-flight de-duplication within this context. `chrome.storage` has no
@@ -60,6 +87,12 @@ export const NATIVE_PRICE_TTL_MS = 10 * 60_000;
 const marketCache = new SingleFlight<string, MarketSnapshot>(MARKET_TTL_MS);
 const benchmarkCache = new SingleFlight<'benchmarks', Record<string, Benchmark>>(BENCHMARK_TTL_MS);
 const nativePriceCache = new SingleFlight<string, number | null>(NATIVE_PRICE_TTL_MS);
+const longHistoryCache = new SingleFlight<string, HistoryPoint[]>(LONG_HISTORY_TTL_MS);
+const bookCache = new SingleFlight<string, LimitOrderBook>(BOOK_TTL_MS);
+const loopCache = new SingleFlight<string, LoopOption[]>(LOOP_TTL_MS);
+const liveRateCache = new SingleFlight<string, LiveRate>(LIVE_RATE_TTL_MS);
+
+const marketKey = (chainId: number, address: string) => `${chainId}-${address.toLowerCase()}`;
 
 /** Markets, with expired ones dropped at the cache boundary but counted. */
 export async function getMarkets(chains: number[], force = false): Promise<MarketSnapshot> {
@@ -110,6 +143,30 @@ export async function getHistory(
   return points;
 }
 
+/**
+ * The long (daily) history, cached in memory only — it is context for the
+ * detail page and is never part of the score.
+ */
+export async function getLongHistory(
+  chainId: number,
+  address: string,
+  force = false,
+): Promise<HistoryPoint[]> {
+  return longHistoryCache.run(marketKey(chainId, address), () => fetchLongHistory(chainId, address), force);
+}
+
+export async function getLimitOrderBook(chainId: number, address: string, force = false): Promise<LimitOrderBook> {
+  return bookCache.run(marketKey(chainId, address), () => fetchLimitOrderBook(chainId, address), force);
+}
+
+export async function getLoopOptions(chainId: number, ptAddress: string, force = false): Promise<LoopOption[]> {
+  return loopCache.run(marketKey(chainId, ptAddress), () => fetchLoopOptions(chainId, ptAddress), force);
+}
+
+export async function getLiveRate(chainId: number, address: string, force = false): Promise<LiveRate> {
+  return liveRateCache.run(marketKey(chainId, address), () => fetchLiveRate(chainId, address), force);
+}
+
 export async function getBenchmarks(force = false): Promise<Record<string, Benchmark>> {
   if (!force) {
     const cached = await getCachedBenchmark();
@@ -151,5 +208,9 @@ export async function clearRemoteCaches(): Promise<void> {
   marketCache.clear();
   benchmarkCache.clear();
   nativePriceCache.clear();
+  longHistoryCache.clear();
+  bookCache.clear();
+  loopCache.clear();
+  liveRateCache.clear();
 }
 

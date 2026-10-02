@@ -1,6 +1,6 @@
-import type { App } from '../app';
+import type { App, MarketExtras } from '../app';
 import { append, el, openExternal, sparkline } from '../dom';
-import { chip, disclosure, factorList, scoreBlock, stat, statGrid, verdictChip } from '../components';
+import { avatar, chip, disclosure, factorList, scoreBlock, spinner, stat, statGrid, verdictChip } from '../components';
 import {
   daysUntil,
   formatAmount,
@@ -12,20 +12,24 @@ import {
   formatSignedPct,
   formatUsd,
 } from '../../lib/domain/format';
-import { analyzeHistory } from '../../lib/domain/history';
+import { analyzeHistory, historySpanDays } from '../../lib/domain/history';
 import { chainName } from '../../lib/domain/chains';
 import { buildDecisionBrief, type DecisionBrief } from '../../lib/domain/decision';
 import { VERDICT_RULE } from '../../lib/domain/score';
-import type { HistoryPoint, HistoryStats, Market, MarketScore } from '../../lib/domain/types';
+import { rangePosition, rewardBadges, yieldProvenance, type ProvenanceRow } from '../../lib/domain/rewards';
+import { readBook } from '../../lib/domain/book';
+import { netApyAtMaxLeverage, readLooping } from '../../lib/domain/looping';
+import type { ExternalProtocol, HistoryPoint, HistoryStats, LoopOption, Market, MarketScore } from '../../lib/domain/types';
 
 /**
  * The market detail page, ordered by the decision rather than by the data.
  *
  * A PT buyer asks four things, in order: what do I earn, what do I get back,
- * what does it cost, and what could go wrong. The top of this page answers
- * those and nothing else; the raw statistics, provider notes and contract
- * addresses are still here, but lower and behind a heading. Every number that
- * used to sit in an undifferentiated wall is either given a job or demoted.
+ * what does it cost, and what could go wrong. The top of this page answers those
+ * and nothing else. Everything the Pendle AI endpoints add — yield provenance,
+ * rewards, limit-order depth, leverage venues — is a labelled panel under that
+ * answer, and the raw statistics and addresses stay at the bottom. The score is
+ * deliberately *not* fed by any of it: see the Method page.
  */
 export function renderDetail(app: App, marketId: string): HTMLElement {
   const market = app.marketById(marketId);
@@ -36,6 +40,8 @@ export function renderDetail(app: App, marketId: string): HTMLElement {
   const history = app.state.history.get(marketId) ?? null;
   const stats = history ? analyzeHistory(history, app.state.benchmark.pct) : null;
   const favorited = app.isFavorite(marketId);
+  const extras = app.extrasFor(marketId);
+  const remoteLogos = app.state.settings.remoteLogos;
   const brief = buildDecisionBrief(market, score, {
     benchmarkPct: app.state.benchmark.pct,
     historyStats: stats,
@@ -56,15 +62,21 @@ export function renderDetail(app: App, marketId: string): HTMLElement {
         scoreBlock(score, true),
         el(
           'div',
-          {},
-          el('h2', { class: 'detail-title', text: `${market.name} · ${market.underlyingAsset.symbol}` }),
+          { class: 'detail-title-row' },
+          avatar(market.underlyingAsset.symbol, market.id, market.icon, { large: true, remote: remoteLogos }),
           el(
             'div',
-            { class: 'card-sub' },
-            chip(market.protocol, 'muted'),
-            chip(chainName(market.chainId), 'muted'),
-            market.isPrime ? chip('Prime', 'good') : null,
-            verdictChip(score.verdict),
+            {},
+            el('h2', { class: 'detail-title', text: `${market.name} · ${market.underlyingAsset.symbol}` }),
+            el(
+              'div',
+              { class: 'card-sub' },
+              chip(market.protocol, 'muted'),
+              chip(chainName(market.chainId), 'muted'),
+              market.isPrime ? chip('Prime', 'good') : null,
+              market.isVolatile ? chip('Variable underlying', 'warn') : null,
+              verdictChip(score.verdict),
+            ),
           ),
         ),
       ),
@@ -84,12 +96,15 @@ export function renderDetail(app: App, marketId: string): HTMLElement {
         }),
       ),
     ),
-    decisionPanel(brief, score, days, market),
+    decisionPanel(brief, score, days, market, extras),
+    limitOrdersDisclosure(market, extras),
     payoutPanel(brief, market),
-    historyPanel(history, stats),
+    yieldPanel(market, extras),
+    leveragePanel(market, extras),
+    historyPanel(history, stats, extras),
     riskPanel(app, market),
     scorePanel(app, score),
-    marketDataPanel(market),
+    marketDataPanel(market, extras, remoteLogos),
     el('div', { class: 'disclaimer', text: 'Read-only. Verify every number on app.pendle.finance before signing anything.' }),
   );
 
@@ -103,7 +118,18 @@ export function renderDetail(app: App, marketId: string): HTMLElement {
  * only part of the page that tells you what to do with the numbers; everything
  * below it is evidence.
  */
-function decisionPanel(brief: DecisionBrief, score: MarketScore, days: number, market: Market): HTMLElement {
+function decisionPanel(
+  brief: DecisionBrief,
+  score: MarketScore,
+  days: number,
+  market: Market,
+  extras: MarketExtras,
+): HTMLElement {
+  const rewards = rewardBadges(market);
+  const live = extras.live?.impliedApy ?? null;
+  const liveDiffers =
+    live !== null && Number.isFinite(live) && Math.abs(live - market.impliedApy) >= 0.0005;
+
   return el(
     'section',
     { class: 'panel panel-decision' },
@@ -112,6 +138,12 @@ function decisionPanel(brief: DecisionBrief, score: MarketScore, days: number, m
       text: 'A PT is a fixed-rate loan to this protocol. You pay below par today and receive one accounting-asset unit at maturity, so the trade is fixed only if you hold it. Decide on four things: what you earn over the risk-free rate, what you get back, what it costs to get in, and what could go wrong.',
     }),
     el('p', { class: 'decision-headline', text: brief.headline }),
+    liveDiffers
+      ? el('div', {
+          class: 'live-line',
+          text: `Live now: ${formatPct(live)} · ${extras.loadedAt ? formatRelative(extras.loadedAt) : 'just now'}`,
+        })
+      : null,
     statGrid(
       stat('Fixed APY', formatPct(market.impliedApy), `spread ${formatSignedPct(brief.spread)} over benchmark`, true),
       stat('Matures', `${Math.round(days)} days`, formatDate(market.expiry)),
@@ -126,6 +158,9 @@ function decisionPanel(brief: DecisionBrief, score: MarketScore, days: number, m
         `≈ ${formatUsd(brief.entryCost.feeUsd, 0)} at ${formatCompactUsd(brief.entryCost.notionalUsd)}`,
       ),
     ),
+    rewards.length > 0
+      ? el('div', { class: 'reward-chips' }, ...rewards.map((badge) => el('span', { class: `chip chip-${badge.kind === 'points' ? 'good' : 'neutral'}`, text: badge.label, title: badge.title })))
+      : null,
     el('div', { class: 'verdict-line' }, verdictChip(score.verdict), el('span', { class: 'muted', text: VERDICT_RULE[score.verdict] })),
     el(
       'div',
@@ -143,6 +178,49 @@ function caseList(title: string, items: string[], kind: 'for' | 'against'): HTML
     el('h4', { class: 'case-title', text: title }),
     el('ul', { class: 'case-list' }, ...items.map((text) => el('li', { text }))),
   );
+}
+
+/* ------------------------------ limit orders ------------------------------ */
+
+/**
+ * A rate-only read of the order book. The provider mixes limit and AMM sizes on
+ * scales it does not document, so this says where resting orders are in *rate*
+ * terms and never invents a dollar size.
+ */
+function limitOrdersDisclosure(market: Market, extras: MarketExtras): HTMLElement {
+  const book = readBook(extras.book);
+  const maker = market.limitOrderIncentive;
+
+  let summary = 'loading…';
+  if (book) {
+    summary = book.hasLimitOrders
+      ? `${book.restingOrders} resting · best ${formatPct(book.bestLimitApy)}`
+      : 'none resting — AMM only';
+  }
+
+  const children: (HTMLElement | null)[] = [];
+  if (!book) {
+    children.push(extras.loading ? spinner('Reading the order book…') : el('div', { class: 'muted', text: 'The limit-order book is unavailable.' }));
+  } else {
+    children.push(
+      statGrid(
+        stat('Resting orders', String(book.restingOrders), `${book.levels} levels returned`),
+        stat(
+          'Best resting rate',
+          book.hasLimitOrders ? formatPct(book.bestLimitApy) : '—',
+          book.hasLimitOrders ? `lowest ${formatPct(book.worstLimitApy)}` : 'none on the book',
+        ),
+        stat('Best AMM rate', formatPct(book.bestAmmApy), 'the rate if you take liquidity'),
+        stat('Maker APY', maker ? formatPct(maker.impliedApy) : '—', 'for posting a resting order'),
+      ),
+      el('div', {
+        class: 'hint',
+        text: 'Rates only: the provider returns limit and AMM sizes in units it does not document, so this deliberately shows no dollar depth. A resting order at a better rate than the AMM is only useful if it is large enough for your size — check the fill on Pendle before relying on it.',
+      }),
+    );
+  }
+
+  return disclosure({ title: 'Limit orders', summary, children });
 }
 
 /* -------------------------------- the payout ------------------------------ */
@@ -183,9 +261,250 @@ function payoutPanel(brief: DecisionBrief, market: Market): HTMLElement {
   return section;
 }
 
+/* ---------------------------- yield & rewards ----------------------------- */
+
+/**
+ * Where the yield comes from, and what else the market pays out.
+ *
+ * Both halves are labelled by *who receives them*: the PT's return is the fixed
+ * rate, and the LP/YT groups and PENDLE emissions are not the PT holder's.
+ */
+function yieldPanel(market: Market, extras: MarketExtras): HTMLElement | null {
+  const provenance = yieldProvenance(market);
+  const rewards = rewardBadges(market);
+  const range = market.yieldRange;
+  const position = rangePosition(market);
+
+  if (provenance.length === 0 && rewards.length === 0 && !range) return null;
+
+  const section = el('section', { class: 'panel' }, el('h3', { text: 'Yield & rewards' }));
+
+  if (provenance.length > 0) {
+    append(
+      section,
+      el('div', { class: 'stat-label', text: 'Where the yield comes from' }),
+      el('ul', { class: 'provenance' }, ...provenance.map(provenanceRow)),
+    );
+  }
+
+  if (range) {
+    append(
+      section,
+      el('div', { class: 'stat-label', text: 'Where the current fixed rate sits' }),
+      rangeBar(range.min, range.max, market.impliedApy, position, extras),
+    );
+  }
+
+  if (rewards.length > 0) {
+    append(
+      section,
+      el('div', { class: 'stat-label', text: 'Rewards & incentives' }),
+      el(
+        'div',
+        { class: 'reward-chips' },
+        ...rewards.map((badge) =>
+          el('span', { class: `chip chip-${badge.kind === 'points' ? 'good' : 'neutral'}`, text: badge.label, title: badge.title }),
+        ),
+      ),
+    );
+  }
+
+  append(
+    section,
+    el('div', {
+      class: 'hint',
+      text: 'Pendle publishes these splits per asset. The PT holder earns the fixed rate; the LP and YT rewards, and PENDLE emissions, go to those positions, not to PT. Points programmes are the provider’s, with their own terms.',
+    }),
+  );
+  return section;
+}
+
+function provenanceRow(row: ProvenanceRow): HTMLElement {
+  return el(
+    'li',
+    {},
+    el(
+      'span',
+      { class: 'prov-main' },
+      el('span', { class: 'prov-label', text: row.label }),
+      el('span', { class: 'prov-applies', text: `on ${row.appliesTo}` }),
+    ),
+    el('span', { class: 'prov-apy', text: formatPct(row.apy) }),
+    el('span', { class: 'prov-sources', text: row.sources.join(' · ') }),
+  );
+}
+
+function rangeBar(min: number, max: number, now: number, position: number | null, extras: MarketExtras): HTMLElement {
+  const marker = el('span', { class: 'range-marker' });
+  marker.style.left = `${Math.round((position ?? 0) * 100)}%`;
+  const long = extras.longHistory ?? null;
+  return el(
+    'div',
+    { class: 'range' },
+    el(
+      'div',
+      { class: 'range-track' },
+      marker,
+    ),
+    el(
+      'div',
+      { class: 'range-labels' },
+      el('span', { text: formatPct(min) }),
+      el('span', { class: 'range-now', text: `now ${formatPct(now)}` }),
+      el('span', { text: formatPct(max) }),
+    ),
+    long && long.length > 1
+      ? el('div', { class: 'hint', text: `Range Pendle reports; ${historySpanDays(long)} days of daily history are charted below.` })
+      : el('div', { class: 'hint', text: 'Range Pendle reports for this market’s implied APY.' }),
+  );
+}
+
+/* --------------------------------- leverage ------------------------------- */
+
+function leveragePanel(market: Market, extras: MarketExtras): HTMLElement {
+  const section = el('section', { class: 'panel' }, el('h3', { text: 'Leverage (PT looping)' }));
+  const options = extras.loop;
+
+  if (options === undefined) {
+    if (extras.loading) {
+      append(section, spinner('Checking money markets…'));
+      return section;
+    }
+    if (market.externalProtocols.length === 0) {
+      append(section, el('div', { class: 'muted', text: 'Pendle lists no money market where this PT can be used as looping collateral.' }));
+      return section;
+    }
+    append(
+      section,
+      el('div', {
+        class: 'hint',
+        text: 'From the market payload — the detailed venue and risk panel could not be loaded.',
+      }),
+      externalProtocolList(market.externalProtocols),
+    );
+    return section;
+  }
+
+  if (options.length === 0) {
+    append(section, el('div', { class: 'muted', text: 'Pendle lists no money market where this PT can be used as looping collateral.' }));
+    return section;
+  }
+
+  const read = readLooping(options);
+  const best = read.best;
+  append(section, el('div', { class: 'hint', text: `Pendle lists ${read.venues} venue${read.venues === 1 ? '' : 's'} for this PT. Looping borrows against the PT to buy more: it multiplies the fixed rate and the liquidation risk.` }));
+
+  if (best) {
+    const net = netApyAtMaxLeverage(best, market.impliedApy);
+    append(
+      section,
+      statGrid(
+        stat('Max leverage', best.maxLeverage !== null ? `${best.maxLeverage.toFixed(1)}×` : '—', `${best.moneyMarketName} · ${best.debtSymbol}`),
+        stat('Borrow APY', formatPct(best.borrowApy7dAvg ?? best.borrowApy), best.borrowApy7dAvg !== null ? '7-day average' : 'spot'),
+        best.maxApy !== null
+          ? stat(
+              'Max looping APY',
+              formatPct(best.maxApy),
+              best.reference ? `Pendle, at ${best.reference.leverage.toFixed(1)}× · ${formatCompactUsd(best.reference.positionUsd)}` : 'Pendle’s model',
+              true,
+            )
+          : null,
+        stat('Net at max leverage', net !== null ? formatPct(net) : '—', 'our arithmetic: fixed × L − borrow × (L−1)'),
+      ),
+      el('ul', { class: 'venues' }, ...options.map((option) => venueRow(option, market.impliedApy))),
+    );
+
+    if (best.risks && best.risks.items.length > 0) {
+      append(
+        section,
+        el(
+          'div',
+          { class: 'note warn' },
+          el('div', { class: 'stat-label', text: `Pendle’s risk read: ${best.risks.overallLabel}` }),
+          el(
+            'ul',
+            { class: 'risk-list' },
+            ...best.risks.items.map((item) =>
+              el(
+                'li',
+                {},
+                el('span', { class: 'risk-name', text: item.name }),
+                chip(item.label, riskChipKind(item.level)),
+                el('div', { class: 'muted', text: item.summary }),
+                item.rationale ? el('div', { class: 'risk-rationale', text: item.rationale }) : null,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  append(
+    section,
+    el('div', {
+      class: 'hint',
+      text: 'Looping can be liquidated: if the collateral falls or the borrow rate rises enough, the position is closed at a loss, and the APYs above assume the rate you see now holds. Pendle supplies the venue numbers; the app does not endorse them.',
+    }),
+  );
+  return section;
+}
+
+function riskChipKind(level: string): 'good' | 'warn' | 'bad' | 'neutral' {
+  if (level === 'none') return 'good';
+  if (level === 'low') return 'neutral';
+  if (level === 'medium') return 'warn';
+  if (level === 'high') return 'bad';
+  // An unrecognised level is "I don't know", not "dangerous".
+  return 'warn';
+}
+
+function venueRow(option: LoopOption, fixedApy: number): HTMLElement {
+  const net = netApyAtMaxLeverage(option, fixedApy);
+  const label = `${option.moneyMarketName} · ${option.debtSymbol}`;
+  const node = el(
+    'li',
+    {},
+    el(
+      'span',
+      { class: 'venue-main' },
+      option.marketUrl || option.url
+        ? el('button', {
+            class: 'link-inline',
+            text: label,
+            on: { click: () => openExternal(option.marketUrl ?? option.url ?? '') },
+          })
+        : el('span', { text: label }),
+      el('span', { class: 'venue-meta', text: `${option.maxLeverage !== null ? `${option.maxLeverage.toFixed(1)}×` : '—'} · borrow ${formatPct(option.borrowApy7dAvg ?? option.borrowApy)} · ${formatCompactUsd(option.liquidityUsd)} liquidity` }),
+    ),
+    el('span', { class: 'venue-apy', text: net !== null ? formatPct(net) : formatPct(option.maxApy) }),
+  );
+  return node;
+}
+
+function externalProtocolList(protocols: ExternalProtocol[]): HTMLElement {
+  return el(
+    'ul',
+    { class: 'venues' },
+    ...protocols.map((protocol) =>
+      el(
+        'li',
+        {},
+        el(
+          'span',
+          { class: 'venue-main' },
+          el('span', { text: `${protocol.name}${protocol.debtSymbol ? ` · ${protocol.debtSymbol}` : ''}` }),
+          el('span', { class: 'venue-meta', text: `${protocol.maxLtv !== null ? `${(protocol.maxLtv * 100).toFixed(0)}% LTV` : '—'} · borrow ${formatPct(protocol.borrowApy)} · ${formatCompactUsd(protocol.liquidityUsd)} liquidity` }),
+        ),
+        el('span', { class: 'venue-apy', text: formatPct(protocol.maxLoopingApy) }),
+      ),
+    ),
+  );
+}
+
 /* ------------------------------ yield history ----------------------------- */
 
-function historyPanel(history: HistoryPoint[] | null, stats: HistoryStats | null): HTMLElement {
+function historyPanel(history: HistoryPoint[] | null, stats: HistoryStats | null, extras: MarketExtras): HTMLElement {
   const section = el('section', { class: 'panel' }, el('h3', { text: 'Yield history' }));
   if (!history) {
     append(section, el('div', { class: 'spinner' }, el('span', { class: 'dot' }), 'Loading 2 months of hourly implied APY…'));
@@ -219,12 +538,44 @@ function historyPanel(history: HistoryPoint[] | null, stats: HistoryStats | null
         ),
       ],
     }),
+    longHistoryDisclosure(extras),
     el('div', {
       class: 'hint',
-      text: 'History covers roughly the last 2 months at hourly resolution — the Pendle API caps this window, so it cannot see a full credit cycle.',
+      text: 'The window above is the last ~2 months at hourly resolution — the regime the score’s stability factor reads. It cannot see a full credit cycle.',
     }),
   );
   return section;
+}
+
+/**
+ * The long view, kept separate from the stats above on purpose: the score reads
+ * the recent hourly regime, and mixing years of daily points into it would
+ * change the number without any explanation. This is context, clearly labelled.
+ */
+function longHistoryDisclosure(extras: MarketExtras): HTMLElement | null {
+  const long = extras.longHistory;
+  if (!long || long.length < 2) {
+    if (extras.loading) return disclosure({ title: 'Long-range history', summary: 'loading…', quiet: true, children: [spinner()] });
+    return null;
+  }
+  const stats = analyzeHistory(long, 0);
+  const span = historySpanDays(long);
+  const values = long.map((p) => p.impliedApy ?? 0);
+  return disclosure({
+    title: 'Long-range history (daily)',
+    summary: `${span} days`,
+    quiet: true,
+    children: [
+      sparkline(values, 360, 56) ?? el('div', { class: 'muted', text: 'Not enough points to chart.' }),
+      statGrid(
+        stat('Average', formatPct(stats.mean), `over ${span} days`),
+        stat('Volatility (σ)', formatPct(stats.stddev), 'across regimes'),
+        stat('Low', formatPct(stats.min), 'daily low'),
+        stat('High', formatPct(stats.max), 'daily high'),
+      ),
+      el('div', { class: 'hint', text: 'Daily points, up to Pendle’s ~1440-point cap. Not part of the score.' }),
+    ],
+  });
 }
 
 /* ---------------------------------- risk --------------------------------- */
@@ -341,31 +692,40 @@ function protocolNote(score: MarketScore): HTMLElement {
 
 /* ------------------------- market data & contracts ------------------------ */
 
-/**
- * Everything that used to sit in the headline grid but does not inform the
- * decision: TVL (which includes PT you could not exit against), the variable
- * rates of the other side of the trade, the annualised fee rate (the real cost
- * is above), and contract addresses.
- */
-function marketDataPanel(market: Market): HTMLElement {
+function marketDataPanel(market: Market, extras: MarketExtras, remoteLogos: boolean): HTMLElement {
+  const rows: (HTMLElement | null)[] = [
+    market.marketType ? stat('Market type', market.marketType, market.isVolatile ? 'variable underlying' : 'stable underlying') : null,
+    market.ptRoi !== null ? stat('PT ROI to maturity', formatPct(market.ptRoi), 'provider, at expiry') : null,
+    market.ytRoi !== null ? stat('YT ROI to maturity', formatPct(market.ytRoi), 'provider, at expiry') : null,
+    stat('TVL', formatCompactUsd(market.tvlUsd), 'incl. floating PT, not all exit-able'),
+    stat('24h volume', formatCompactUsd(market.tradingVolumeUsd), 'recent trading'),
+    stat('Underlying APY', formatPct(market.underlyingApy), `${market.underlyingAsset.symbol} variable rate`),
+    stat('YT floating APY', formatPct(market.ytFloatingApy), 'earned by the YT side, not by you'),
+    stat('AMM fee rate', formatPct(market.feeRate, 3), 'annualised; see cost to enter'),
+    stat('Floating PT', formatAmount(market.floatingPt), 'PT held outside the AMM'),
+    stat('Looping venues', String(market.externalProtocols.length), 'from the market payload'),
+  ];
+
+  const children: (HTMLElement | null)[] = [
+    statGrid(...rows.filter((row): row is HTMLElement => row !== null)),
+    kv('Market', market.address),
+    kv('PT', market.pt.address),
+    kv('Accounting asset', `${market.accountingAsset.symbol} · ${market.accountingAsset.address}`),
+    kv('Underlying', `${market.underlyingAsset.symbol} · ${market.underlyingAsset.address}`),
+    kv('Provider updated', formatRelative(market.updatedAt)),
+  ];
+
+  if (remoteLogos && market.icon) children.push(kv('Logo', market.icon));
+  if (extras.errors.length > 0) {
+    children.push(
+      el('div', { class: 'hint', text: `Some detail endpoints failed and were skipped: ${extras.errors.join(', ')}.` }),
+    );
+  }
+
   return disclosure({
     title: 'Market data & contracts',
     summary: `${formatCompactUsd(market.tvlUsd)} TVL · ${formatCompactUsd(market.tradingVolumeUsd)} 24h`,
-    children: [
-      statGrid(
-        stat('TVL', formatCompactUsd(market.tvlUsd), 'incl. floating PT, not all exit-able'),
-        stat('24h volume', formatCompactUsd(market.tradingVolumeUsd), 'recent trading'),
-        stat('Underlying APY', formatPct(market.underlyingApy), `${market.underlyingAsset.symbol} variable rate`),
-        stat('YT floating APY', formatPct(market.ytFloatingApy), 'earned by the YT side, not by you'),
-        stat('AMM fee rate', formatPct(market.feeRate, 3), 'annualised; see cost to enter'),
-        stat('Floating PT', formatAmount(market.floatingPt), 'PT held outside the AMM'),
-      ),
-      kv('Market', market.address),
-      kv('PT', market.pt.address),
-      kv('Accounting asset', `${market.accountingAsset.symbol} · ${market.accountingAsset.address}`),
-      kv('Underlying', `${market.underlyingAsset.symbol} · ${market.underlyingAsset.address}`),
-      kv('Provider updated', formatRelative(market.updatedAt)),
-    ],
+    children,
   });
 }
 

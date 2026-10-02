@@ -73,6 +73,14 @@ Raw provider shapes are confined to `src/lib/api/normalize.ts`. If Pendle rename
 (and the matching case in `tests/normalize.test.ts`) rather than leaking the new name into
 `domain/types.ts`.
 
+The detail page's live data comes from four more endpoints on the same host —
+`/v2/limit-orders/book/{chainId}`, `/v1/pt-looping/loop/pts/{chainId}/{pt}/looping`,
+`/v1/sdk/{chainId}/markets/{addr}/swapping-prices`, and the daily `historical-data` series. Each has a
+normalizer in `normalize.ts` and a pure consumer in `domain/rewards.ts`, `domain/book.ts` or
+`domain/looping.ts`; add a case to `tests/normalize.test.ts`, and run `PF_LIVE=1 npm test` if you touch
+the network shape. None of that data feeds the score — if you think it should, that is a scoring change
+and it belongs in `score.ts` with its prose and a test.
+
 ## Brand assets
 
 Icons, the header mark and the README banner are generated from one geometry definition, with no image

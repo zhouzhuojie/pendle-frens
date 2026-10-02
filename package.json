@@ -24,7 +24,7 @@
     "typescript"
   ],
   "engines": {
-    "node": ">=20.11"
+    "node": ">=22.22.2"
   },
   "scripts": {
     "dev": "vite build --watch --mode development",

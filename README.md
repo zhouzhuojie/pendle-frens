@@ -66,7 +66,7 @@ whole thing.
 | --- | --- | --- |
 | Spread vs benchmark | 28% | How much more than a risk-free Treasury of similar duration? |
 | Exit liquidity | 22% | Could I sell early without moving the price against me? |
-| Protocol track record | 22% | Who is on the other side of this yield, and for how long? |
+| Protocol depth | 22% | How substantial is the protocol you are lending to? |
 | Maturity fit | 10% | Does the lock-up match a sensible holding period? |
 | Collateral quality | 10% | What does the PT actually redeem into? |
 | Yield stability | 8% | Is this a durable level, or a spike I am buying the top of? |
@@ -75,11 +75,11 @@ If a factor cannot be computed it is dropped and the remaining weights are re-no
 scale stays honest. The weights, bands and verdict rules are exported constants, and the Method page is
 generated from those same constants — `tests/score.test.ts` fails if the prose stops matching the code.
 
-Protocol track record comes from a curated registry in
-[`src/lib/domain/registry.ts`](src/lib/domain/registry.ts): a maintainer opinion, PR-editable, in
-`A / B / C / unlisted` tiers. An unlisted protocol is penalised, flagged, hidden by default, and
-described as **a gap in the list, not a verdict**. See
-[DESIGN.md](docs/DESIGN.md#the-registry-is-an-opinion-on-purpose).
+**There is no registry and no curation.** Protocol depth is measured, not judged: a weighted blend of
+total TVL, number of active markets, number of chains and Pendle's Prime flag, from the snapshot alone.
+It measures size and breadth, **never trust** — a large protocol can still fail — so the app makes no
+protocol-level judgement anywhere and never calls a protocol "safe". See
+[DESIGN.md](docs/DESIGN.md#no-registry-measure-protocol-depth-instead).
 
 ## Cost forensics
 
@@ -126,8 +126,8 @@ expected redemption proceeds, not as a round trip. Each row says whether its cos
 Screened-out markets are summarised as a count with reasons, with a one-click **Show all**:
 
 ```
-Hiding 20 markets: 13 protocol not in registry · 4 below your liquidity bar
-                 ·  2 too close to maturity   · 1 below your spread bar
+Hiding 20 markets: 13 below your liquidity bar · 4 too close to maturity
+                 ·  2 below your spread bar     · 1 model would avoid
 ```
 
 *Show all* ignores your quality bars but never your explicit choices — chain, collateral type and
@@ -170,7 +170,7 @@ the panel never messages a worker. Worth running before a release.
 ```
 src/lib/api/        Pendle + U.S. Treasury clients, raw→domain normalizers, and client.ts
                     (fetch + TTL cache + single-flight — the only thing the panel calls)
-src/lib/domain/     pure logic: types, chains, registry, score, screen, history, simulate, route
+src/lib/domain/     pure logic: types, chains, protocol, decision, score, screen, history, simulate, route
 src/lib/storage/    chrome.storage access layer
 src/background/     the MV3 service worker: side-panel registration, nothing else
 src/panel/          panel controller, components, and one file per view
@@ -180,6 +180,17 @@ tests/              offline unit + jsdom render tests, plus opt-in live tests
 
 [docs/DESIGN.md](docs/DESIGN.md) covers how it works and why the odd-looking parts are deliberate.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the two changes people actually make.
+
+## Contributing
+
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the ground
+rules and the two changes people actually make; [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies to
+every project space. For a vulnerability, use [private reporting](SECURITY.md) rather than a public
+issue.
+
+This project ships **zero runtime dependencies** and no telemetry, and `tests/manifest.test.ts`
+keeps the permission list from growing silently — please help it stay that way. Changes are
+summarised in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

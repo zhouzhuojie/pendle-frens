@@ -38,7 +38,7 @@ The product rules are short enough to state up front:
                                 │
                                 ▼
                   src/lib/domain/*  (pure, fully unit tested)
-        types · chains · registry · score · screen · history · simulate · route
+        types · chains · protocol · decision · score · screen · history · simulate · route
 
 ┌───────────────── background service worker (src/background) ────────────────┐
 │ 27 lines, 9 of them code. One job: `setPanelBehavior` at install, so the    │
@@ -89,53 +89,41 @@ run at install/startup or the toolbar button does nothing.
 guess. This one had a confident comment explaining a constraint that did not exist, and it survived
 several reviews because it sounded careful.
 
-## The registry is an opinion, on purpose
+## No registry: measure protocol depth instead
 
-`src/lib/domain/registry.ts` holds ~36 protocols in tiers, and it is hardcoded. That is the design: a
-tier is a *judgement*, so it is written down where you can read it, argue with it and change it by pull
-request — rather than laundered through a model that would make an opinion look like a measurement.
-Every entry carries the reasoning that produced it, and the UI renders that reasoning on the detail view.
+Earlier versions shipped a hand-curated registry of protocol tiers. It was removed, for the reason that
+kept recurring: a curated list is a *gate*, so a protocol nobody had typed in was invisible in Discover
+however real it was, and the tier conflated "we have not reviewed this" with "this is low quality".
+Maintaining it also meant every new listing was one missed PR away from disappearing.
 
-| Tier | Means | Scores |
+The protocol factor is now a pure measurement (`protocol.ts`), taken from facts already in the snapshot:
+
+| Signal | Weight | Why |
 | --- | --- | --- |
-| **A** | Blue chip: multi-year live contracts, multiple independent audits, large TVL, no unresolved critical incidents | 100 |
-| **B** | Established but younger or smaller, or carrying a known design tradeoff | 70 |
-| **C** | New, experimental, or a thin track record | 35 |
-| *unlisted* | Nobody has curated it yet — not a judgement | 15 |
+| Total TVL across the protocol's markets | 50% | depth of capital already committed |
+| Number of active markets | 20% | breadth of listing / market-maker interest |
+| Number of chains | 10% | multi-chain deployment |
+| Pendle's Prime flag | 20% | the provider's own curated listing flag |
 
-**Can this be automated?** Not the tier. There is no API that outputs a trustworthy "is this protocol
-legit" score:
+The blend is squeezed into 15–60, so no size proxy can present itself as certainty.
 
-- **DefiLlama** (`api.llama.fi`) is the closest — free and factual (TVL, category, `listedAt`, `hacks`,
-  an audit count). But that audit count is user-submitted and wrong often enough to matter: it reports
-  **0 audits for Apyx**, which has three. It can inform curation; it cannot replace it.
-- **Yearn's risk-score repo, TID Research, LlamaRisk, Bluechip, Credora, DeFi Safety** are human
-  assessments, not APIs.
-- **GoPlus, CertiK Skynet, De.Fi** are token-contract scanners. They say nothing about whether a
-  protocol pays you back.
+**What this deliberately gives up.** Size is not safety: high TVL is what a protocol shows right before a
+failure as often as when it is sound, and the metric knows nothing about team quality, governance, oracle
+design or an unresolved incident. That trade is made explicitly — the app makes **no protocol-level
+judgement anywhere**, says so on the Method page and every detail view, and never calls a protocol safe.
+The honest framing is "substantial but unvetted", never "trusted".
 
-There is also a concrete reason to keep the mapping curated rather than fuzzy-matched: DefiLlama's
-**Resupply** (plus a $9.6M June 2025 exploit) is *not* **re.xyz**, which Pendle actually lists — yet a
-symbol-based auto-match would have attached another team's hack to it. And adding `api.llama.fi` would
-mean a third `host_permissions` entry. Two is the promise.
+Consequences worth remembering:
 
-### Audit links come from the registry, not from Pendle
-
-Pendle's `marketInfo.auditedUrl` is **empty for all 586 markets** we scanned across Ethereum and
-Arbitrum. The field exists in the schema and is never populated, so a flag based on it fired on 100% of
-markets and read to users as *this protocol is unaudited*. It appeared on Aave. It appeared on Curve.
-
-The fix is a per-protocol `auditUrl`, resolved in one place (`auditLink`):
-
-1. Pendle's own link, if it ever publishes one — labelled as this market's;
-2. otherwise the protocol's page, labelled **"the protocol's own audit page — not an audit of this
-   market"**;
-3. otherwise, and only then, "No audit link on file", worded to say this is a gap in *our links*, not
-   evidence that no audit exists.
-
-Only hand-verified URLs go in. A wrong link is worse than no link, so uncovered protocols deliberately
-keep the honest flag until someone sources the page. `tests/score.test.ts` asserts the flag cannot
-regress into implying a protocol is unaudited.
+- There is no "unknown" state, no `Tier` type, no `PROTOCOL_REGISTRY`, and no unlisted-hidden rule.
+- **Audit links are gone as a feature.** Pendle's `marketInfo.auditedUrl` is empty for all 586 markets we
+  scanned, so the detail view simply says "No audit link on file" — worded as a gap in *our* links, not
+  evidence that no audit exists. A curated per-protocol audit URL was the one thing the registry gave that
+  data could not replace; we chose to drop it rather than keep curating.
+- Grouping is by Pendle's own `protocol` string, normalized (case/spacing/dot-insensitive), never by fuzzy
+  symbol match — so look-alike protocols are never conflated. DefiLlama's post-exploit **Resupply** is not
+  **re.xyz**, which Pendle actually lists; a symbol-based match would have attached another team's hack to
+  it.
 
 ## Screening never hides a row silently
 
@@ -147,8 +135,43 @@ that said nothing while dropping 578 of 586 rows.
 market, and Discover prints the histogram with a **Show all** toggle. Explicit choices (chain, collateral
 type, search text) are never bypassed by *Show all*; quality bars are.
 
-Note that the registry is a correctness surface, not decoration: "protocol X is unlisted" and "protocol
-X is hidden" are the same statement while `hideUnknownProtocols` is on.
+Because there is no curation, the only things that can hide a market are objective bars and explicit
+choices — never the absence of a name from a list.
+
+## The detail page answers the decision, not the dataset
+
+The market detail view used to be an undifferentiated wall: ten headline stats, eight history stats, six
+weighted factors and a block of provider notes, with no hierarchy and no interpretation. Every number was
+true and none of them told you what to do with it. The page is now ordered by the four questions a PT
+buyer actually asks, and each metric either answers one of them or is demoted.
+
+`domain/decision.ts` turns the snapshot + score into a `DecisionBrief` — a headline sentence, the
+maturity payout, an entry-cost estimate, a liquidity read, and two derived lists: **why it could work**
+and **what to watch**. The view renders it; the reasoning is pure and tested.
+
+| Question | Metric | Where it lives |
+| --- | --- | --- |
+| What do I earn? | fixed APY, spread vs benchmark | decision panel |
+| What do I get back? | PT price, discount, payout at maturity | payout panel |
+| What does it cost? | entry fee (`feeRate × notional × days/365`), liquidity | decision panel |
+| What could go wrong? | collateral/peg, stability, maturity, protocol depth, provider notes | decision panel + risk notes |
+
+The audit that produced that table, metric by metric:
+
+- **Kept, because they drive a decision:** fixed APY and spread (what you are paid), maturity (when the
+  capital returns), pool liquidity (whether you can leave early), PT price/discount (the mechanism behind
+  the APY, shown as a worked payout), collateral class and peg (what the PT actually redeems into), σ and
+  coverage (is the headline durable), and the provider's own risk notes.
+- **Demoted, because they do not:** **TVL** (includes floating PT you could not exit against — pool
+  liquidity is the actionable number), **24h volume**, **underlying APY** and **YT floating APY** (the
+  other side of the trade; neither changes a PT held to maturity), the **raw AMM fee rate** (the annualised
+  rate is not the cost; `feeRate × notional × days/365` is, and the page shows that instead), **floating
+  PT** (internal accounting), and the history **min/max/samples/trend** (context, not action). All of them
+  are still on the page, inside a *Market data & contracts* disclosure.
+
+Two rules keep the page honest: a metric with no decision meaning is never allowed to sit in the headline
+grid, and no generated sentence may claim more than the data supports — the payout is labelled "before
+fees, at today's price", and an off-peg accounting asset is stated as a loss rather than smoothed over.
 
 ## The domain math
 
@@ -167,7 +190,10 @@ X is hidden" are the same statement while `hideUnknownProtocols` is on.
 - **`successor.ts`** — the "same asset, next expiry" match used to default the roll destination.
   Deliberately separate from the Discover ranking: for a roll you want continuity of exposure, not the
   best score.
-- **`registry.ts`** — the curated tiers.
+- **`protocol.ts`** — the objective, capped 0..1 protocol-depth measurement; see "No registry: measure
+  protocol depth instead".
+- **`decision.ts`** — the PT decision brief: payout, entry cost, liquidity read and the for/against lists,
+  all derived from the snapshot so the detail view stays dumb; see "The detail page answers the decision".
 
 ## The fee identity
 
@@ -285,11 +311,11 @@ background to work in both themes.
 
 The **Method** view is not prose sitting next to the code — it is generated from the same exported
 constants the scorer uses (`SCORE_WEIGHTS`, `SPREAD_SCORE_RANGE`, `LIQUIDITY_SCORE_RANGE`,
-`MATURITY_BANDS`, `STABILITY`, `VERDICT_RULES`, `FACTOR_DOCS`, `FLAG_DOCS`), and the protocol list is
-generated from `PROTOCOL_REGISTRY`. `tests/score.test.ts` asserts that every factor has a full doc
-block, that the weights still sum to 1, that the prose quotes the real thresholds, and that every flag
-the scorer can emit has an explanation. Changing a threshold without updating its explanation fails CI.
-Documentation that can silently go stale is worse than none.
+`MATURITY_BANDS`, `STABILITY`, `VERDICT_RULES`, `FACTOR_DOCS`, `FLAG_DOCS`, `PROTOCOL_DEPTH`).
+`tests/score.test.ts` asserts that every factor has a full doc block, that the weights still sum to 1,
+that the prose quotes the real thresholds, and that every flag the scorer can emit has an explanation.
+Changing a threshold without updating its explanation fails CI. Documentation that can silently go stale
+is worse than none.
 
 ## Extension security model
 
@@ -311,8 +337,8 @@ Documentation that can silently go stale is worse than none.
 - **Different chain:** add it to `CHAINS` in `domain/chains.ts`; the API layer is chain-agnostic.
 - **Different data provider:** implement `fetchMarkets` / `fetchHistory` / `convert` and reuse everything
   downstream.
-- **Different scoring opinion:** edit `BASE_WEIGHTS` and `decideVerdict` in `domain/score.ts`.
-- **Different protocol-trust opinion:** edit `PROTOCOL_REGISTRY` in `domain/registry.ts`.
+- **Different scoring opinion:** edit the weights and `decideVerdict` in `domain/score.ts`.
+- **Different protocol-depth opinion:** edit `PROTOCOL_DEPTH` in `domain/protocol.ts`.
 
 Each of those is a single file with tests next to it, which is the point.
 
@@ -320,9 +346,9 @@ Each of those is a single file with tests next to it, which is the point.
 
 Recorded rather than silently decided. None of these are bugs.
 
-1. **Should `safe` be reachable at all?** With today's listings almost nothing clears the tier-A +
-   stable + ≥$5M + ≥60d + ≥1pp bar, so the top of the list is `balanced`. That may be correct and still
-   read as broken to a first-time user. Options: loosen the bar, or rename the tiers
+1. **Should `safe` be reachable at all?** With today's listings few markets clear the stable + ≥$5M + ≥60d
+   + ≥1pp bar, so the top of the list is `balanced`. That may be correct and still read as broken to a
+   first-time user. Options: loosen the bar, or rename the verdicts
    (`Conservative / Standard / Speculative`).
 2. **Is the peg threshold right for redemption-value assets?** A stable market's *accounting* asset is
    the peg that matters — yield-bearing wrappers legitimately trade above $1, so flagging upward drift
@@ -331,7 +357,8 @@ Recorded rather than silently decided. None of these are bugs.
 3. **Benchmark choice.** The default is the average interest rate on outstanding Treasury Notes: official
    and keyless, but it lags the live curve, so the UI says so and Settings allows an override. Should the
    10-year be worth a keyed provider? Bills and Bonds are already fetched and could be selectable.
-4. **Should the registry be JSON + schema** so non-developers can PR it?
+4. **Can protocol depth be measured better than by size?** TVL and market count are lagging, gameable
+   proxies. A fee-revenue or age signal might be less naive, if the API ever exposes one.
 5. **How much should points/airdrop programs be surfaced?** Currently not shown at all — speculative
    value scored as yield was rejected outright.
 6. **Multi-chain default.** Only Ethereum is on by default; Arbitrum is available. Is the breadth worth

@@ -31,7 +31,6 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultSizeUsd: 50_000,
   minMaturityDays: 14,
   minLiquidityUsd: 1_000_000,
-  hideUnknownProtocols: true,
   gasPriceGwei: 5,
   showRiskNotes: true,
 };

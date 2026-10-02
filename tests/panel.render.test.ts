@@ -324,7 +324,7 @@ describe('side panel rendering', () => {
     for (const dimension of [
       'Spread vs benchmark',
       'Exit liquidity',
-      'Protocol track record',
+      'Protocol depth',
       'Maturity fit',
       'Collateral quality',
       'Yield stability',
@@ -377,25 +377,6 @@ describe('side panel rendering', () => {
     expect(view.querySelector('.results-line')!.textContent).toContain('markets');
   });
 
-  it('links the protocol\u2019s audits when Pendle publishes none', () => {
-    const reMarket = makeMarket({
-      id: '1-0xre-audit',
-      address: '0xre-audit',
-      protocol: 're.xyz',
-      info: { ...makeMarket().info, auditedUrl: null },
-    });
-    app.ingestSnapshot({
-      fetchedAt: new Date().toISOString(),
-      chains: [{ chainId: 1, fetchedAt: new Date().toISOString(), markets: [reMarket] }],
-      skippedExpired: 0,
-    });
-    app.state.detailMarketId = reMarket.id;
-    app.render();
-    expect(view.textContent).toContain('re.xyz audits');
-    expect(view.textContent).toContain('not an audit of this market');
-    expect(view.textContent).not.toContain('No audit link on file');
-  });
-
   it('says a link is missing, not that the protocol is unaudited', () => {
     const noLink = makeMarket({
       id: '1-0xnoaudit',
@@ -444,13 +425,35 @@ describe('side panel rendering', () => {
     expect(view.textContent).toContain('Risk notes');
     expect(view.querySelector('svg.sparkline')).not.toBeNull();
     expect(view.textContent).toContain('Accounting asset');
-    // The registry's opinion is rendered, not merely stored: this tier is what
-    // decides both the protocol factor and whether the market is shown at all.
-    expect(view.textContent).toContain('Registry — tier B · re.xyz');
-    expect(view.textContent).toContain('Reinsurance sleeve can produce negative yield.');
+    // The protocol factor is explained as a measurement, and the app states
+    // plainly that it makes no protocol-level judgement.
+    expect(view.textContent).toContain('Protocol depth — measured, not judged');
+    expect(view.textContent).toContain('size and breadth, never trust');
   });
 
-  it('explains an unlisted protocol instead of only flagging it', () => {
+  it('opens the detail page on the decision, not a wall of metrics', () => {
+    app.render();
+    app.state.detailMarketId = marketA.id;
+    app.render();
+
+    // The answer comes first: the headline, the payout, and the two cases.
+    expect(view.querySelector('.decision-headline')!.textContent).toContain('Lock 11.50%');
+    expect(view.textContent).toContain('Why it could work');
+    expect(view.textContent).toContain('What to watch');
+    expect(view.textContent).toContain('What you would get at maturity');
+    expect(view.textContent).toContain('Est. cost to enter');
+
+    // The two cases are real, populated lists, not empty headings.
+    expect(view.querySelectorAll('.case-for .case-list li').length).toBeGreaterThan(0);
+    expect(view.querySelectorAll('.case-against .case-list li').length).toBeGreaterThan(0);
+
+    // Raw market data is still here, but demoted behind a disclosure.
+    const titles = [...view.querySelectorAll('details.disclosure .disclosure-title')].map((n) => n.textContent);
+    expect(titles).toContain('Market data & contracts');
+    expect(titles).toContain('More history statistics');
+  });
+
+  it('explains protocol depth instead of judging the protocol', () => {
     const exotic = makeMarket({ id: '1-0xexotic', address: '0xexotic', name: 'Exotic market', protocol: 'ZzZ New Protocol' });
     app.ingestSnapshot({
       fetchedAt: new Date().toISOString(),
@@ -459,10 +462,10 @@ describe('side panel rendering', () => {
     });
     app.state.detailMarketId = exotic.id;
     app.render();
-    expect(view.textContent).toContain('Registry — tier unknown');
-    // It has to say *what follows from that*, not just label the market.
-    expect(view.textContent).toContain('hidden by default');
-    expect(view.textContent).toContain('Scores the bottom of the protocol factor');
+    expect(view.textContent).toContain('Protocol depth — measured, not judged');
+    // It has to say *what follows from that*, not just show a number.
+    expect(view.textContent).toContain('makes no protocol-level judgement');
+    expect(view.textContent).toContain('never trust');
   });
 
   it('escapes provider text instead of injecting markup', () => {

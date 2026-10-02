@@ -10,18 +10,60 @@
  * from these same numbers, so the documentation cannot drift from the code.
  */
 
-import type { AssetClass, FactorKey, HistoryStats, Market, MarketScore, ScoreFactor, Tier, Verdict } from './types';
-import { ASSET_CLASS_SCORE, auditLink, classifyAsset, lookupProtocol, protocolTier, TIER_SCORE } from './registry';
+import type { AssetClass, FactorKey, HistoryStats, Market, MarketScore, ProtocolDepth, ScoreFactor, Verdict } from './types';
+import { PROTOCOL_DEPTH, normalizeProtocol, protocolDepthScore, type ProtocolFacts } from './protocol';
 import { clamp, normalize } from '../util/decimal';
-import { daysUntil, formatPct } from './format';
+import { daysUntil, formatCompactUsd, formatPct } from './format';
 import { STABILITY, stabilityScore } from './history';
 
 export interface ScoreContext {
   benchmarkPct: number;
   minLiquidityUsd: number;
   historyStats?: HistoryStats | null;
+  /**
+   * Per-protocol aggregates for the protocol factor, built once per snapshot by
+   * `protocol.ts`. When absent, every protocol keeps the flat floor.
+   */
+  protocolFacts?: ReadonlyMap<string, ProtocolFacts> | null;
   now?: number;
 }
+
+/* ------------------------- asset classification -------------------------- */
+
+/**
+ * Classify the market's underlying exposure from Pendle's own category tags,
+ * with a symbol fallback so newly listed markets are not left unclassified.
+ * Local to the scorer because nothing else needs it.
+ */
+const STABLE_SYMBOL = /(usdc|usdt|^dai$|usds|usde|susde|sfrxusd|frax|crvusd|gho|pyusd|usdd|usd0|susd|deusd|usdx|reusd|siusd|susn|^usr$|usdf|rusd|rlusd|usdtb|susds|usdn|iusd)/i;
+const ETH_SYMBOL = /(w?eth|steth|reth|ezeth|weeth|ethx|sfrxeth|cbeth|oseth|sweth)/i;
+const BTC_SYMBOL = /(btc)/i;
+
+export function classifyAsset(categoryIds: string[], symbols: string[]): AssetClass {
+  const cats = new Set(categoryIds.map((c) => c.toLowerCase()));
+  if (cats.has('stables')) return 'stable';
+  if (cats.has('rwa')) return 'rwa';
+  if (cats.has('btc')) return 'btc';
+  if (cats.has('lst') || cats.has('lrt')) return 'eth-staking';
+  if (cats.has('eth')) return 'eth';
+
+  const joined = symbols.join(' ');
+  if (STABLE_SYMBOL.test(joined)) return 'stable';
+  if (ETH_SYMBOL.test(joined)) return 'eth-staking';
+  if (BTC_SYMBOL.test(joined)) return 'btc';
+  return symbols.some((s) => s.length > 0) ? 'other' : 'unknown';
+}
+
+/** Asset-class weights, exported so the Method view uses the real numbers. */
+export const ASSET_CLASS_SCORE: Record<AssetClass, number> = {
+  stable: 1,
+  rwa: 0.85,
+  'eth-staking': 0.75,
+  eth: 0.65,
+  btc: 0.6,
+  other: 0.4,
+  unknown: 0.3,
+};
 
 /* ------------------------------- thresholds ------------------------------ */
 
@@ -63,14 +105,12 @@ export const PEG_AVOID_THRESHOLD = 0.1;
 /** The bars a verdict must clear. Used by `decideVerdict` and shown in the UI. */
 export const VERDICT_RULES = {
   safe: {
-    tier: 'A' as Tier,
     minLiquidityUsd: 5_000_000,
     minDays: 60,
     minSpreadPct: 0.01,
     minStability: 0.6,
   },
   balanced: {
-    tiers: ['A', 'B'] as Tier[],
     assetClasses: ['stable', 'rwa', 'eth-staking'] as AssetClass[],
     minLiquidityUsd: 1_000_000,
     minDays: 30,
@@ -92,7 +132,7 @@ export const VERDICT_ORDER: Record<Verdict, number> = { safe: 0, balanced: 1, de
 export const FACTOR_LABELS: Record<FactorKey, string> = {
   spread: 'Spread vs benchmark',
   liquidity: 'Exit liquidity',
-  protocol: 'Protocol track record',
+  protocol: 'Protocol depth',
   maturity: 'Maturity fit',
   assetClass: 'Collateral quality',
   stability: 'Yield stability',
@@ -145,7 +185,7 @@ export function scoreMarket(market: Market, ctx: ScoreContext): MarketScore {
   const now = ctx.now ?? Date.now();
   const days = daysUntil(market.expiry, now);
   const spread = spreadVsBenchmark(market, ctx.benchmarkPct);
-  const tier = protocolTier(market.protocol);
+  const protocolDepth = depthFor(market, ctx.protocolFacts);
   const assetClass = classifyAsset(market.categoryIds, [
     market.underlyingAsset.symbol,
     market.accountingAsset.symbol,
@@ -171,9 +211,11 @@ export function scoreMarket(market: Market, ctx: ScoreContext): MarketScore {
     {
       key: 'protocol',
       label: FACTOR_LABELS.protocol,
-      value: TIER_SCORE[tier],
+      value: protocolDepth?.score ?? PROTOCOL_DEPTH.floor,
       weight: SCORE_WEIGHTS.protocol,
-      detail: tier === 'unknown' ? `${market.protocol}: not in registry` : `${market.protocol}: tier ${tier}`,
+      detail: protocolDepth
+        ? `${market.protocol}: depth ${Math.round(protocolDepth.score * 100)} from ${protocolDepth.markets} market${protocolDepth.markets === 1 ? '' : 's'} on ${protocolDepth.chains} chain${protocolDepth.chains === 1 ? '' : 's'}, ${formatCompactUsd(protocolDepth.tvlUsd)} TVL`
+        : `${market.protocol}: no depth data in this snapshot`,
     },
     {
       key: 'maturity',
@@ -207,7 +249,6 @@ export function scoreMarket(market: Market, ctx: ScoreContext): MarketScore {
 
   const flags = buildFlags(market, {
     days,
-    tier,
     assetClass,
     minLiquidityUsd: ctx.minLiquidityUsd,
     stability: stab,
@@ -217,7 +258,6 @@ export function scoreMarket(market: Market, ctx: ScoreContext): MarketScore {
     score: Math.round(clamp(composite, 0, 1) * 100),
     verdict: decideVerdict(market, {
       days,
-      tier,
       assetClass,
       spread,
       minLiquidityUsd: ctx.minLiquidityUsd,
@@ -226,13 +266,31 @@ export function scoreMarket(market: Market, ctx: ScoreContext): MarketScore {
     factors,
     flags,
     assetClass,
-    protocolTier: tier,
+    protocolDepth,
+  };
+}
+
+/**
+ * Resolve the objective depth for a protocol from the snapshot facts, or `null`
+ * when the snapshot produced none (single-market callers with no facts).
+ */
+function depthFor(
+  market: Market,
+  factsMap: ReadonlyMap<string, ProtocolFacts> | null | undefined,
+): ProtocolDepth | null {
+  const facts = factsMap?.get(normalizeProtocol(market.protocol));
+  if (!facts) return null;
+  return {
+    score: protocolDepthScore(facts),
+    markets: facts.markets,
+    chains: facts.chains,
+    tvlUsd: facts.tvlUsd,
+    isPrime: facts.isPrime,
   };
 }
 
 interface FlagContext {
   days: number;
-  tier: Tier;
   assetClass: AssetClass;
   minLiquidityUsd: number;
   stability: number | null;
@@ -242,11 +300,7 @@ export const FLAG_DOCS: Record<string, string> = {
   expired: 'Maturity has passed. PT is redeemable; the AMM market is no longer tradeable.',
   'matures-soon': 'Under 30 days left — you will be rolling again shortly.',
   'long-dated': 'More than 2 years out — more time for the underlying to misbehave.',
-  'unknown-protocol': 'The protocol is not in this project’s curated registry. Treated as unvetted.',
-  'young-protocol': 'In the registry but tier C: new, experimental or a thin track record.',
   'thin-liquidity': 'Pool liquidity is below the bar you set in Settings — exiting early may cost.',
-  'no-audit-link':
-    'No audit link on file: neither Pendle nor the curated registry links one for this protocol. That is a gap in our links, not evidence that no audit exists — check the protocol yourself before trusting it.',
   'has-risk-notes': 'Pendle flagged specific risks for this market — read them on the detail view.',
   loopable: 'Collateral is commonly looped; expect correlated deleveraging pressure.',
   'unstable-yield': 'Implied APY has been volatile over the measured window.',
@@ -258,10 +312,7 @@ function buildFlags(market: Market, ctx: FlagContext): string[] {
   if (ctx.days <= 0) flags.push('expired');
   else if (ctx.days < 30) flags.push('matures-soon');
   if (ctx.days > 730) flags.push('long-dated');
-  if (ctx.tier === 'unknown') flags.push('unknown-protocol');
-  if (ctx.tier === 'C') flags.push('young-protocol');
   if (market.liquidityUsd < ctx.minLiquidityUsd) flags.push('thin-liquidity');
-  if (!auditLink(market.protocol, market.info.auditedUrl)) flags.push('no-audit-link');
   if (market.info.riskInvolved) flags.push('has-risk-notes');
   if (market.categoryIds.includes('pt-looping')) flags.push('loopable');
   if (ctx.stability !== null && ctx.stability < 0.5) flags.push('unstable-yield');
@@ -272,7 +323,6 @@ function buildFlags(market: Market, ctx: FlagContext): string[] {
 
 interface VerdictContext {
   days: number;
-  tier: Tier;
   assetClass: AssetClass;
   spread: number;
   minLiquidityUsd: number;
@@ -291,7 +341,6 @@ export function decideVerdict(market: Market, ctx: VerdictContext): Verdict {
   if (pegBreak !== null && pegBreak > PEG_AVOID_THRESHOLD) return 'avoid';
 
   const safe =
-    ctx.tier === safeRule.tier &&
     ctx.assetClass === 'stable' &&
     market.liquidityUsd >= safeRule.minLiquidityUsd &&
     ctx.days >= safeRule.minDays &&
@@ -300,7 +349,6 @@ export function decideVerdict(market: Market, ctx: VerdictContext): Verdict {
   if (safe) return 'safe';
 
   const balanced =
-    balancedRule.tiers.includes(ctx.tier) &&
     balancedRule.assetClasses.includes(ctx.assetClass) &&
     market.liquidityUsd >= balancedRule.minLiquidityUsd &&
     ctx.days >= balancedRule.minDays &&
@@ -348,13 +396,11 @@ export const FACTOR_DOCS: Record<FactorKey, FactorDoc> = {
   },
   protocol: {
     key: 'protocol',
-    question: 'Who is on the other side of this yield, and how long have they been doing it?',
-    method: `A curated tier: A = 100 points, B = 70, C = 35, and anything not in the registry = 15. The registry lives in ${
-      '`src/lib/domain/registry.ts`'
-    } and is a maintainer opinion, editable by pull request.`,
-    why: 'Equal second weight (22%). PT does not remove credit risk — it re-prices it. You are lending to the underlying protocol at a fixed rate, so its track record is as important as the rate.',
+    question: 'How substantial is the protocol you are lending to?',
+    method: `No curation, no tier: every protocol is scored the same way, from facts in the snapshot. A weighted blend of total TVL (${(PROTOCOL_DEPTH.weights.tvl * 100).toFixed(0)}%, log scale from ${formatCompactUsd(PROTOCOL_DEPTH.tvl.zeroAtUsd)} to ${formatCompactUsd(PROTOCOL_DEPTH.tvl.fullAtUsd)}), market count (${(PROTOCOL_DEPTH.weights.markets * 100).toFixed(0)}%, ${PROTOCOL_DEPTH.markets.fullAt}+ markets maxes it), chain count (${(PROTOCOL_DEPTH.weights.chains * 100).toFixed(0)}%, ${PROTOCOL_DEPTH.chains.fullAt}+ chains maxes it) and Pendle's Prime flag (${(PROTOCOL_DEPTH.weights.prime * 100).toFixed(0)}%). The result is squeezed into ${Math.round(PROTOCOL_DEPTH.floor * 100)}–${Math.round(PROTOCOL_DEPTH.ceiling * 100)}, so no size proxy ever presents itself as certainty.`,
+    why: 'Equal second weight (22%). A protocol with more live markets, deeper TVL and a Prime listing is more likely to have real infrastructure behind it than a single thin pool. It is a ranking input, not a safety verdict.',
     caveat:
-      'This is a judgement, not a measurement, and it cannot capture team quality, governance capture, oracle design or a future exploit. "Not in the registry" means unvetted, not necessarily bad — press Show all to see it anyway.',
+      'This measures size and breadth, never trust. A protocol can be huge and still fail tomorrow — TVL is what a protocol shows right before it breaks as often as when it is sound. The app makes no protocol judgement at all: read the protocol docs, audits and Pendle risk notes before lending to it.',
   },
   maturity: {
     key: 'maturity',
@@ -393,29 +439,25 @@ export const SCORE_EXPLAINER = {
   redFlags: [
     'A score is a summary of six numbers you can see — it is not a security audit.',
     'It cannot see team quality, governance, oracle design, or a contract bug that has not happened yet.',
-    'The registry tier is an opinion. The spread and liquidity bands are conventions. Change the constants and the ranking changes.',
+    'The protocol factor measures size, not trust, and the spread and liquidity bands are conventions. Change the constants and the ranking changes.',
     'Nothing here is financial advice, and the highest score is not the best trade for your situation.',
   ],
 };
 
 /** Human sentence for each verdict, assembled from the same thresholds the code uses. */
 export const VERDICT_RULE: Record<Verdict, string> = {
-  safe: `Tier ${VERDICT_RULES.safe.tier} protocol, stable collateral, ≥$${
-    VERDICT_RULES.safe.minLiquidityUsd / 1e6
-  }M pool liquidity, ≥${VERDICT_RULES.safe.minDays} days to maturity, ≥${formatPct(
-    VERDICT_RULES.safe.minSpreadPct,
-  )} over benchmark, and stable yield history.`,
-  balanced: `Tier ${VERDICT_RULES.balanced.tiers.join(' or ')} protocol, ${VERDICT_RULES.balanced.assetClasses.join(
-    '/',
-  )} collateral, ≥$${VERDICT_RULES.balanced.minLiquidityUsd / 1e6}M liquidity, ≥${
-    VERDICT_RULES.balanced.minDays
-  } days, ≥${formatPct(VERDICT_RULES.balanced.minSpreadPct)} over benchmark.`,
+  safe: `Stable collateral, ≥$${VERDICT_RULES.safe.minLiquidityUsd / 1e6}M pool liquidity, ≥${
+    VERDICT_RULES.safe.minDays
+  } days to maturity, ≥${formatPct(VERDICT_RULES.safe.minSpreadPct)} over benchmark, and stable yield history.`,
+  balanced: `${VERDICT_RULES.balanced.assetClasses.join('/')} collateral, ≥$${
+    VERDICT_RULES.balanced.minLiquidityUsd / 1e6
+  }M liquidity, ≥${VERDICT_RULES.balanced.minDays} days, ≥${formatPct(
+    VERDICT_RULES.balanced.minSpreadPct,
+  )} over benchmark.`,
   degen:
-    'Passes the hard filters (live, liquid enough, positive rate, on peg) but misses the conservative bar — usually a young protocol, thin liquidity or exotic collateral.',
+    'Passes the hard filters (live, liquid enough, positive rate, on peg) but misses the conservative bar — usually thin liquidity or exotic collateral.',
   avoid: `Fails a hard filter: expired, non-positive fixed rate, liquidity below your bar, or a stable accounting asset more than ${formatPct(
     PEG_AVOID_THRESHOLD,
     0,
   )} below its peg.`,
 };
-
-export { classifyAsset, lookupProtocol, protocolTier, TIER_SCORE, ASSET_CLASS_SCORE, auditLink };

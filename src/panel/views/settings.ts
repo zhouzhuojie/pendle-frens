@@ -37,7 +37,6 @@ export function renderSettings(app: App): HTMLElement {
       numberField('Minimum pool liquidity (USD)', settings.minLiquidityUsd, { min: 0, step: 100_000 }, (value) =>
         save({ minLiquidityUsd: value }),
       ),
-      toggle('Hide protocols not in the registry', settings.hideUnknownProtocols, (checked) => save({ hideUnknownProtocols: checked })),
       toggle('Show curated risk notes on market details', settings.showRiskNotes, (checked) => save({ showRiskNotes: checked })),
     ),
     section(

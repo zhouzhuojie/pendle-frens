@@ -28,5 +28,5 @@ server, no accounts and no user data. Worth reporting:
   not a guarantee, and it deliberately does not tell you what to buy.
 - **Wrong data at the source.** Prices, liquidity and yield come from Pendle's API; report those
   upstream.
-- **A missing protocol in the curated registry.** That is a documentation gap, and a pull request is the
-  fix — see [CONTRIBUTING.md](CONTRIBUTING.md).
+- **A protocol we decline to rank well.** There is no curated list to get onto; the protocol factor is a
+  size/breadth measurement, never a trust verdict, and it is not a statement that a protocol is safe.

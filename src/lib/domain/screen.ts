@@ -41,7 +41,6 @@ export type HideReason =
   | 'thin-liquidity'
   | 'off-peg'
   | 'avoided'
-  | 'unknown-protocol'
   | 'maturity'
   | 'spread'
   | 'chain'
@@ -54,7 +53,6 @@ export const HIDE_REASON_LABEL: Record<HideReason, string> = {
   'thin-liquidity': 'below your liquidity bar',
   'off-peg': 'collateral off peg',
   avoided: 'model would avoid',
-  'unknown-protocol': 'protocol not in registry',
   maturity: 'too close to maturity',
   spread: 'below your spread bar',
   chain: 'different chain',
@@ -105,7 +103,6 @@ function barReason(candidate: Candidate, filters: ScreenFilters, settings: Setti
   if (market.liquidityUsd < settings.minLiquidityUsd) return 'thin-liquidity';
   if (score.flags.includes('accounting-asset-off-peg')) return 'off-peg';
   if (score.verdict === 'avoid') return 'avoided';
-  if (settings.hideUnknownProtocols && score.protocolTier === 'unknown') return 'unknown-protocol';
   if (daysToMaturity < settings.minMaturityDays) return 'maturity';
   if (spread < filters.minSpreadPct / 100) return 'spread';
   return null;

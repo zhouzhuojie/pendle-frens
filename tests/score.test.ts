@@ -19,6 +19,7 @@ import {
   decideVerdict,
 } from '../src/lib/domain/score';
 import { analyzeHistory, stabilityScore, STABILITY } from '../src/lib/domain/history';
+import { PROTOCOL_DEPTH } from '../src/lib/domain/protocol';
 import { formatPct } from '../src/lib/domain/format';
 import type { HistoryPoint, Market } from '../src/lib/domain/types';
 import { makeAsset, makeMarket } from './fixtures';
@@ -109,7 +110,7 @@ describe('decideVerdict', () => {
 
   it('avoids a severely depegged accounting asset', () => {
     const market = makeMarket({ accountingAsset: { ...makeMarket().accountingAsset, priceUsd: 0.8 } });
-    expect(decideVerdict(market, { days: 180, tier: 'A', assetClass: 'stable', spread: 0.05, minLiquidityUsd: 1_000_000, stability: null })).toBe('avoid');
+    expect(decideVerdict(market, { days: 180, assetClass: 'stable', spread: 0.05, minLiquidityUsd: 1_000_000, stability: null })).toBe('avoid');
     expect(scoreMarket(market, CTX).flags).toContain('accounting-asset-off-peg');
   });
 });
@@ -165,6 +166,10 @@ describe('scoring documentation', () => {
     expect(FACTOR_DOCS.maturity.method).toContain(String(MATURITY_BANDS.fullToDays));
     expect(FACTOR_DOCS.stability.method).toContain(String(STABILITY.minSamples));
     expect(FACTOR_DOCS.stability.method).toContain(formatPct(STABILITY.volatilityCap));
+    // The protocol factor measures depth, never a curated tier; its prose must
+    // quote the band the scorer actually applies.
+    expect(FACTOR_DOCS.protocol.method).toContain(String(Math.round(PROTOCOL_DEPTH.floor * 100)));
+    expect(FACTOR_DOCS.protocol.method).toContain(String(Math.round(PROTOCOL_DEPTH.ceiling * 100)));
   });
 
   it('explains every verdict using the same bars the scorer applies', () => {
@@ -190,17 +195,9 @@ describe('scoring documentation', () => {
     );
 
     const fixtures: Market[] = [
-      makeMarket({ id: '1-0xflags', liquidityUsd: 10_000, categoryIds: ['pt-looping'], info: { ...makeMarket().info, auditedUrl: null, riskInvolved: 'Risky' } }),
+      makeMarket({ id: '1-0xflags', liquidityUsd: 10_000, categoryIds: ['pt-looping'], info: { ...makeMarket().info, riskInvolved: 'Risky' } }),
       makeMarket({ id: '1-0xsoon', expiry: new Date(Date.now() + 10 * 86_400_000).toISOString() }),
       makeMarket({ id: '1-0xlong', expiry: new Date(Date.now() + 900 * 86_400_000).toISOString() }),
-      makeMarket({ id: '1-0xunknown', protocol: 'Zzz Brand New' }),
-      // Null both ways: Pendle publishes nothing and the registry has no page yet.
-      makeMarket({
-        id: '1-0xnoaudit',
-        protocol: 'Zzz Brand New',
-        info: { ...makeMarket().info, auditedUrl: null },
-      }),
-      makeMarket({ id: '1-0xyoung', protocol: 'InfiniFi' }),
       makeMarket({ id: '1-0xdead', expiry: new Date(Date.now() - 86_400_000).toISOString() }),
       makeMarket({
         id: '1-0xpeg',
@@ -213,7 +210,7 @@ describe('scoring documentation', () => {
       for (const flag of scoreMarket(market, { ...CTX, historyStats: unstable }).flags) emitted.add(flag);
     }
 
-    expect(emitted.size).toBeGreaterThanOrEqual(9);
+    expect(emitted.size).toBeGreaterThanOrEqual(8);
     for (const flag of emitted) {
       expect(FLAG_DOCS[flag], `flag "${flag}" has no documentation`).toBeDefined();
     }
@@ -222,30 +219,5 @@ describe('scoring documentation', () => {
   it('states a formula and its limitations', () => {
     expect(SCORE_EXPLAINER.formula).toContain('weight');
     expect(SCORE_EXPLAINER.redFlags.length).toBeGreaterThanOrEqual(3);
-  });
-
-  describe('the audit-link flag', () => {
-    const ctx = { benchmarkPct: 0.035, minLiquidityUsd: 1_000_000 };
-
-    it('stays silent when the registry links the protocol\u2019s audits', () => {
-      const aave = makeMarket({ id: '1-0xaave', protocol: 'Aave', info: { ...makeMarket().info, auditedUrl: null } });
-      expect(scoreMarket(aave, ctx).flags).not.toContain('no-audit-link');
-    });
-
-    it('fires when neither Pendle nor the registry has a link', () => {
-      const unlisted = makeMarket({
-        id: '1-0xz',
-        protocol: 'ZzZ New Protocol',
-        info: { ...makeMarket().info, auditedUrl: null },
-      });
-      expect(scoreMarket(unlisted, ctx).flags).toContain('no-audit-link');
-    });
-
-    it('does not claim the protocol is unaudited', () => {
-      // The old text (“Pendle publishes no audit link”) read as “unaudited”, which
-      // was wrong: it fired on 100% of markets, including Aave and re.xyz.
-      expect(FLAG_DOCS['no-audit-link']).toMatch(/gap in our links/);
-      expect(FLAG_DOCS['no-audit-link']).toMatch(/not evidence that no audit exists/);
-    });
   });
 });

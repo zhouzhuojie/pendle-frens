@@ -210,7 +210,7 @@ function marketCard(app: App, candidate: Candidate): HTMLElement {
         el(
           'div',
           { class: 'card-sub' },
-          chip(market.protocol, score.protocolTier === 'unknown' ? 'bad' : 'muted'),
+          chip(market.protocol, 'muted'),
           chip(chainName(market.chainId), 'muted'),
           market.isPrime ? chip('Prime', 'good') : null,
         ),

@@ -22,6 +22,7 @@ import type {
 } from '../lib/domain/types';
 import { CHAINS, STABLE_TOKENS, chainName, chainSlug, marketDeepLink } from '../lib/domain/chains';
 import { scoreMarket, spreadVsBenchmark } from '../lib/domain/score';
+import { buildProtocolFacts, type ProtocolFacts } from '../lib/domain/protocol';
 import { analyzeHistory } from '../lib/domain/history';
 import {
   SENSITIVITY_MULTIPLIERS,
@@ -161,6 +162,8 @@ export class App {
   private readonly tabsEl: HTMLElement;
   private readonly statusEl: HTMLElement;
   private marketIndex = new Map<string, Market>();
+  /** Per-protocol aggregates for the protocol factor; rebuilt with the snapshot. */
+  private protocolFacts = new Map<string, ProtocolFacts>();
 
   constructor(root: HTMLElement) {
     this.viewEl = qs(root, '#view');
@@ -248,6 +251,7 @@ export class App {
       benchmarkPct: this.state.benchmark.pct,
       minLiquidityUsd: this.state.settings.minLiquidityUsd,
       historyStats: this.historyStats(market.id),
+      protocolFacts: this.protocolFacts,
     });
     this.state.scores.set(market.id, computed);
     return computed;
@@ -268,6 +272,7 @@ export class App {
   }
 
   private recomputeScores(): void {
+    this.protocolFacts = buildProtocolFacts(this.markets());
     const next = new Map<string, MarketScore>();
     for (const market of this.markets()) {
       next.set(
@@ -276,6 +281,7 @@ export class App {
           benchmarkPct: this.state.benchmark.pct,
           minLiquidityUsd: this.state.settings.minLiquidityUsd,
           historyStats: this.historyStats(market.id),
+          protocolFacts: this.protocolFacts,
         }),
       );
     }
@@ -440,6 +446,7 @@ export class App {
         benchmarkPct: this.state.benchmark.pct,
         minLiquidityUsd: this.state.settings.minLiquidityUsd,
         historyStats: analyzeHistory(points, this.state.benchmark.pct),
+        protocolFacts: this.protocolFacts,
       });
       this.state.scores.set(marketId, score);
       this.render();

@@ -110,7 +110,6 @@ export interface Benchmark {
 }
 
 export type Verdict = 'safe' | 'balanced' | 'degen' | 'avoid';
-export type Tier = 'A' | 'B' | 'C' | 'unknown';
 export type AssetClass = 'stable' | 'rwa' | 'eth-staking' | 'eth' | 'btc' | 'other' | 'unknown';
 
 export type FactorKey =
@@ -131,13 +130,30 @@ export interface ScoreFactor {
   detail: string;
 }
 
+/**
+ * Objective, protocol-level depth for the protocol factor.
+ *
+ * There is no curated tier and no "unknown" state: every protocol is scored the
+ * same way, from facts already in the snapshot (markets, chains, TVL, Pendle's
+ * Prime flag). This measures *substance*, never *trust* — see `protocol.ts`.
+ */
+export interface ProtocolDepth {
+  /** 0..1. */
+  score: number;
+  markets: number;
+  chains: number;
+  tvlUsd: number;
+  isPrime: boolean;
+}
+
 export interface MarketScore {
   score: number;
   verdict: Verdict;
   factors: ScoreFactor[];
   flags: string[];
   assetClass: AssetClass;
-  protocolTier: Tier;
+  /** Null only when the snapshot produced no facts for this protocol. */
+  protocolDepth: ProtocolDepth | null;
 }
 
 export interface HistoryStats {
@@ -315,7 +331,6 @@ export interface Settings {
   defaultSizeUsd: number;
   minMaturityDays: number;
   minLiquidityUsd: number;
-  hideUnknownProtocols: boolean;
   gasPriceGwei: number;
   /** Remaining API budget hint, purely informational. */
   showRiskNotes: boolean;

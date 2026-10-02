@@ -611,6 +611,79 @@ body {
   flex-wrap: wrap;
 }
 
+/* ------------------------------ decision panel ---------------------------- */
+
+/* The four questions a PT buyer asks, stated once, above the numbers. */
+.decision-intro {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
+  color: var(--muted);
+}
+
+.decision-headline {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+}
+
+.verdict-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+}
+
+.verdict-line .muted {
+  font-size: var(--fs-xs);
+}
+
+.decision-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-6);
+}
+
+@media (max-width: 380px) {
+  .decision-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.case {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.case-title {
+  margin: 0;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.case-list {
+  margin: 0;
+  padding-left: var(--sp-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-normal);
+}
+
+.case-for .case-list li::marker {
+  color: var(--good);
+}
+
+.case-against .case-list li::marker {
+  color: var(--warn);
+}
+
 .panel {
   background: var(--panel);
   border-radius: var(--radius-md);
@@ -1292,21 +1365,7 @@ body {
   color: var(--muted);
 }
 
-/* --------------------------- registry (method page) -------------------------- */
-
-.registry-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-4) 0;
-  border-top: 1px solid var(--line);
-}
-
-.registry-row .chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-}
+/* --------------------------------- audit --------------------------------- */
 
 .audit-line {
   display: flex;

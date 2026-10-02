@@ -15,7 +15,7 @@ import { DEFAULT_SETTINGS } from '../src/lib/storage/store';
 import { makeAsset, makeMarket } from './fixtures';
 
 const BENCHMARK = 0.035;
-const SETTINGS: Settings = { ...DEFAULT_SETTINGS, minMaturityDays: 30, minLiquidityUsd: 1_000_000, hideUnknownProtocols: true };
+const SETTINGS: Settings = { ...DEFAULT_SETTINGS, minMaturityDays: 30, minLiquidityUsd: 1_000_000 };
 const FILTERS: ScreenFilters = { query: '', sort: 'score', minSpreadPct: 0, assetClass: 'all', chain: 'all', showHidden: false };
 
 function candidate(market: Market): Candidate {
@@ -49,10 +49,6 @@ const HIDE_CASES: { reason: HideReason; market: Market; filters?: Partial<Screen
       expiry: inDays(180),
       accountingAsset: makeAsset({ address: '0xusdc', symbol: 'USDC', decimals: 6, priceUsd: 0.95 }),
     }),
-  },
-  {
-    reason: 'unknown-protocol',
-    market: makeMarket({ id: '1-0x5', protocol: 'Zzz Brand New', categoryIds: ['stables'], liquidityUsd: 40_000_000, expiry: inDays(180) }),
   },
   { reason: 'maturity', market: makeMarket({ id: '1-0x6', protocol: 'Aave', categoryIds: ['stables'], liquidityUsd: 40_000_000, expiry: inDays(20) }) },
   {
@@ -108,8 +104,8 @@ describe('screenMarkets', () => {
   });
 
   it('gives every hide reason exactly one attribution', () => {
-    // The expired market also has a stale rate and unknown flags; it must be
-    // reported once, as `expired`, not counted twice.
+    // The expired market also has a stale rate; it must be reported once, as
+    // `expired`, not counted twice.
     const stale = makeMarket({
       id: '1-0xstale',
       protocol: 'Zzz Brand New',
@@ -163,13 +159,13 @@ describe('summarizeHidden', () => {
   it('orders by count and truncates', () => {
     const hidden = new Map<HideReason, number>([
       ['expired', 412],
-      ['unknown-protocol', 16],
+      ['avoided', 16],
       ['maturity', 2],
       ['spread', 1],
       ['thin-liquidity', 1],
     ]);
     const text = summarizeHidden(hidden, 3);
-    expect(text).toBe('412 expired · 16 protocol not in registry · 2 too close to maturity · …');
+    expect(text).toBe('412 expired · 16 model would avoid · 2 too close to maturity · …');
   });
 
   it('returns an empty string when nothing is hidden', () => {

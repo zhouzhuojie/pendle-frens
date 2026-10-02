@@ -28,28 +28,22 @@ decisions are deliberate, which is much cheaper than rediscovering them.
 6. **Minimal permissions.** A PR that adds a permission needs a paragraph justifying it.
 7. **No telemetry.** Ever.
 
-## Adding a protocol to the registry
+## There is no protocol registry
 
-`src/lib/domain/registry.ts` decides whether a market can appear at all: an unlisted protocol scores
-15/100 on the protocol factor and is hidden while `hideUnknownProtocols` is on (the default). So
-"protocol X is unlisted" and "protocol X is hidden" are the same statement, and a missing entry is a bug
-report waiting to happen.
+This project makes **no protocol-level judgement**. Earlier versions shipped a curated tier list; it was
+removed because a curated list is a gate, and a protocol nobody had typed in vanished from Discover
+however real it was. Protocol depth is now measured objectively in
+`src/lib/domain/protocol.ts` from snapshot facts (markets, chains, TVL, Pendle's Prime flag), capped at
+0.60 so size never presents itself as certainty.
 
-When you add one:
+If you want to change how a protocol is *ranked*, edit `PROTOCOL_DEPTH` — the weights and bands — and
+update its prose in `FACTOR_DOCS.protocol`; `tests/score.test.ts` fails if the two drift apart.
 
-- **Pick the tier honestly** against the definitions in the file header. Tier A is a track record, not a
-  vibe. Tier B exists precisely so you do not have to choose between inflating a young protocol to A and
-  burying it at C.
-- **Write a `note` only when you have something specific and sourced to say.** Apyx is tier C because
-  apxUSD traded below par for months and redemptions are priced off a protocol-computed redemption
-  value — that is the kind of claim that needs a citation, not a feeling. The UI renders your note on the
-  detail view, so write it for the person deciding whether to lend this protocol their money.
-- **Add aliases.** Pendle spells the same protocol inconsistently — `USD.AI` and `USD.ai` are both
-  returned for USD.AI — so include the variants and the legal entity name. `tests/registry.test.ts`
-  asserts the API's own spelling resolves (`APYX`, not `Apyx`).
-- **Add an `auditUrl` only if you have checked it yourself.** Pendle's own `marketInfo.auditedUrl` is
-  empty for every market we have scanned, so the registry is the only source of audit links, and a
-  guessed URL is worse than the honest "no audit link on file" flag.
+What this deliberately costs, so it is not "fixed" by accident:
+
+- audit links are gone as a feature (Pendle publishes none, and we no longer curate per-protocol pages);
+- there is no "unvetted" or "unknown" list to add a protocol to;
+- size is not safety, and the UI must keep saying so.
 
 ## Changing the score
 
@@ -127,6 +121,13 @@ ran.
 TypeScript strict, including `noUncheckedIndexedAccess`. `verbatimModuleSyntax` is on, so use `import
 type` for type-only imports. 2-space indent, single quotes, trailing commas, ~120 column soft limit.
 
+## Code of conduct
+
+Participation is covered by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Be decent to people; reports
+go to the address in `package.json` and are handled privately.
+
 ## Security
 
-See [SECURITY.md](SECURITY.md).
+See [SECURITY.md](SECURITY.md). Report vulnerabilities through
+[private reporting](https://github.com/zhouzhuojie/pendle-frens/security/advisories/new), never a
+public issue.

@@ -27,7 +27,8 @@ PF_LIVE=1 npm test # opt-in: real APIs (spends computing units)
 ## There is no protocol registry
 
 The app makes **no protocol-level judgement**. Protocol depth is measured in `domain/protocol.ts` from
-snapshot facts (TVL, markets, chains, Pendle's Prime flag), capped at 0.60. To change how a protocol is
+snapshot facts (TVL, markets, chains, Pendle's Prime flag), blended and capped below 1 so size is never
+certainty. To change how a protocol is
 ranked, edit `PROTOCOL_DEPTH` and its prose in `FACTOR_DOCS.protocol`; `tests/score.test.ts` fails if the
 two drift. Deliberate costs, so they are not "fixed" by accident: there is no "unknown" list, audit links
 are not a feature, and size is never safety.

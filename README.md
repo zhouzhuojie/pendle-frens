@@ -14,6 +14,10 @@ math locally, and deep-links to Pendle when you want to act.
 
 > **Not affiliated with Pendle.** A research tool, not financial advice.
 
+> **The code is the source of truth.** Wherever a rule or number lives in code — scoring weights,
+> thresholds, cache TTLs, API endpoints — this README describes the shape and points to the file rather
+> than repeating the value, so there is one place to change it.
+
 ## Install
 
 Build from source — the Chrome Web Store listing is not live yet.
@@ -24,7 +28,7 @@ cd pendle-frens && npm install && npm run build
 ```
 
 Then chrome://extensions → **Developer mode** → **Load unpacked** → `dist/`. Click the toolbar icon to
-open the side panel. Requires Chrome 120+.
+open the side panel. `public/manifest.json` states the minimum Chrome version.
 
 ## What it does
 
@@ -45,51 +49,50 @@ open the side panel. Requires Chrome 120+.
 
 ## The score
 
-| Factor | Weight | Question |
-| --- | --- | --- |
-| Spread vs benchmark | 28% | How much more than a risk-free Treasury of similar duration? |
-| Exit liquidity | 22% | Could I sell early without moving the price against me? |
-| Protocol depth | 22% | How substantial is the protocol you are lending to? |
-| Maturity fit | 10% | Does the lock-up match a sensible holding period? |
-| Collateral quality | 10% | What does the PT actually redeem into? |
-| Yield stability | 8% | A durable level, or a spike I am buying the top of? |
+Every market leads with a score out of 100 and a verdict, built from six factors:
+
+| Factor | Question |
+| --- | --- |
+| Spread vs benchmark | How much more than a risk-free Treasury of similar duration? |
+| Exit liquidity | Could I sell early without moving the price against me? |
+| Protocol depth | How substantial is the protocol you are lending to? |
+| Maturity fit | Does the lock-up match a sensible holding period? |
+| Collateral quality | What does the PT actually redeem into? |
+| Yield stability | A durable level, or a spike I am buying the top of? |
 
 A factor that cannot be computed is dropped and the rest re-normalised, so the 0–100 scale stays honest.
-The weights, bands and verdict rules are exported constants, and the Method page is generated from them —
-`tests/score.test.ts` fails if the prose drifts from the code.
+**The weights, bands and verdict rules are constants in `src/lib/domain/score.ts`, and the Method view is
+generated from them** — change them there and the app and its tests follow.
 
-**No registry, no curation.** Protocol depth is *measured* from the snapshot (TVL, active markets,
-chains, Pendle's Prime flag), capped at 0.60 — size and breadth, never trust. The app makes no
-protocol-level judgement anywhere and never calls a protocol "safe". See [DESIGN.md](docs/DESIGN.md).
+**No registry, no curation.** Protocol depth is *measured* from the snapshot — total TVL, active markets,
+chains and Pendle's Prime flag, blended and capped below 1 so size can never present itself as certainty
+(`src/lib/domain/protocol.ts`). The app makes no protocol-level judgement anywhere and never calls a
+protocol "safe".
 
 ## What else the detail page shows
 
-Pendle publishes more than the score uses. The detail page shows it, always labelled with **who it
-belongs to**:
-
-- **Yield provenance** — the per-asset split of a market's yield;
-- **Rewards & points** — programmes and PENDLE emissions (emissions go to LPs, not PT);
-- **Limit orders** — resting rates and the maker incentive (rates only, never an invented dollar depth);
-- **Leverage (PT looping)** — venues, max leverage, borrow rate and Pendle's own risk panel;
-- **Long-range daily history**, and a **live** spot rate when it differs from the snapshot.
-
-None of it feeds the score, so new data cannot silently change a verdict.
+Pendle publishes more than the score uses. The detail page also surfaces a market's yield provenance,
+rewards and points, resting limit orders, PT-looping venues, years of daily history and a live spot rate
+— each labelled with **who it belongs to**, because much of it is not the PT holder's. None of it feeds
+the score, so new data cannot silently change a verdict. See [DESIGN.md](docs/DESIGN.md).
 
 ## Costs and the maturity plan
 
-Pendle charges its AMM fee on the annualised implied rate it moves:
+Pendle charges its AMM fee on the annualised implied rate it moves, so the real cost is not
+`feeRate × notional`:
 
 ```
 fee ≈ Σ over AMM legs  feeRate × notional × daysToMaturity / 365
 ```
 
-`feeRate × notional` alone overstates it ~5× on a 72-day market. The panel shows the SDK's number and our
-derivation **side by side**, plus the difference — a tool that shows only its own arithmetic can hide a
-mistake.
+Longer-dated paper therefore costs more to trade at the same size. The panel shows the SDK's number and
+our derivation **side by side**, plus the difference — a tool that shows only its own arithmetic can hide
+a mistake. `src/lib/domain/route.ts` holds the reconstruction, and `PF_LIVE=1 npm test` keeps it within
+5% of the SDK's fee on a real market.
 
 Holding to maturity has **no exit cost** (PT redeems at par through the SY redeemer, not an AMM swap), so
 a maturity roll is priced as a fresh entry into the successor. Every row is labelled **quoted** or
-**modelled**, and annualised net APY sits next to absolute profit.
+**modelled**, and annualised net APY sits next to absolute profit because rows end on different dates.
 
 ## Discover never hides anything silently
 
@@ -100,22 +103,17 @@ Hiding 20 markets: 13 below your liquidity bar · 4 too close to maturity
                  ·  2 below your spread bar     · 1 model would avoid
 ```
 
-*Show all* ignores quality bars but never your explicit choices (chain, collateral, search text).
-`domain/screen.ts` returns exactly one attributable reason per hidden market.
+*Show all* ignores your quality bars but never your explicit choices (chain, collateral, search text).
+`src/lib/domain/screen.ts` returns exactly one attributable reason per hidden market.
 
 ## Privacy & permissions
 
-| Permission | Why |
-| --- | --- |
-| `storage` | favorites, settings and cached data — all local |
-| `sidePanel` | the extension's entire UI |
-| `host_permissions` | exactly two hosts: `api-v2.pendle.finance` and `api.fiscaldata.treasury.gov` |
-
-No alarms, notifications, tabs, `<all_urls>`, content scripts, analytics, remote code or wallet access.
-The worker only registers the side panel at install, so a user who never opens it spends **zero** API
-units. `tests/manifest.test.ts` locks the permission list. The only request that can leave those two
-hosts is the off-by-default **Load market logos** setting (`storage.googleapis.com`); the default is a
-local monogram.
+`public/manifest.json` is the source of truth, and `tests/manifest.test.ts` locks it. In short: two
+permissions (`storage`, `sidePanel`) and exactly two hosts (`api-v2.pendle.finance` and
+`api.fiscaldata.treasury.gov`). No alarms, notifications, tabs, `<all_urls>`, content scripts, analytics,
+remote code or wallet access. The worker only registers the side panel at install, so a user who never
+opens it spends **zero** API units. The only request that can leave those two hosts is the off-by-default
+**Load market logos** setting (it fetches from Pendle's image CDN); the default is a local monogram.
 
 ## Develop
 
@@ -132,8 +130,8 @@ npm run brand       # regenerate icons, header mark, banner
 ## Layout
 
 ```
-src/lib/api/        Pendle + Treasury clients, normalizers, and client.ts (fetch + TTL cache + single-flight)
-src/lib/domain/     pure logic: score, screen, protocol, decision, rewards, book, looping, simulate, route
+src/lib/api/        Pendle + Treasury clients, normalizers, and the fetch/cache client
+src/lib/domain/     pure, unit-tested logic — scoring, screening, protocol depth, simulation, decision, …
 src/lib/storage/    chrome.storage layer
 src/background/     MV3 worker — side-panel registration only
 src/panel/          controller, components, one file per view
@@ -142,7 +140,7 @@ tests/              offline unit + jsdom render tests, opt-in live tests
 ```
 
 [docs/DESIGN.md](docs/DESIGN.md) covers how it works and why. [CONTRIBUTING.md](CONTRIBUTING.md) covers
-setup and ground rules. Releases are in [CHANGELOG.md](CHANGELOG.md).
+setup, ground rules and where to change things. Releases are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing & license
 

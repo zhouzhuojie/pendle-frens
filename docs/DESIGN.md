@@ -1,6 +1,8 @@
 # Design
 
-How Pendle Frens works and why the odd-looking parts are deliberate. Product rules first:
+How Pendle Frens works and why the odd-looking parts are deliberate. This is a map, not a spec: the code
+is the source of truth, so where a rule or number lives in code, the text points at the file rather than
+copying the value. Product rules first:
 
 1. **Never invent a number.** If the API does not return it, say "unavailable" or derive it in a
    documented, tested way.
@@ -15,12 +17,13 @@ How Pendle Frens works and why the odd-looking parts are deliberate. Product rul
 panel (src/panel) ─► api/client.ts   fetch · TTL cache · single-flight
                      api/pendle.ts · api/treasury.ts   the fetch calls
                      api/normalize.ts   raw provider payloads → domain types
-                     domain/*   pure, unit tested
-background worker: 27 lines; only sidePanel.setPanelBehavior at install
+                     domain/*   pure, unit tested — one module per concern
+background worker: registers the side panel at install, and nothing else
 ```
 
-`domain/*` is `types · chains · score · screen · protocol · decision · rewards · book · looping ·
-simulate · route · successor`.
+`domain/*` is one module per concern (types, chains, scoring, screening, protocol depth, history,
+decision, the live-data helpers, simulation, routing). New behaviour that is expressible as math belongs
+there, with a test next to it.
 
 | Layer | May import | Must not |
 | --- | --- | --- |
@@ -35,17 +38,17 @@ simulate · route · successor`.
 
 **The panel fetches; the worker does not.** Chrome grants cross-origin access to a foreground extension
 page holding `host_permissions`, not only to the worker; there are no content scripts, and both APIs are
-CORS-friendly. Routing through the worker only added an RPC layer, a second clone of the ~0.3 MB snapshot
-on each refresh, and a "worker was killed" failure mode. The worker stays solely because
+CORS-friendly. Routing through the worker only added an RPC layer, a second clone of the snapshot on each
+refresh, and a "worker was killed" failure mode. The worker stays solely because
 `sidePanel.setPanelBehavior` has to run from it at install.
 
 **No registry: protocol depth is measured, not judged.** A curated tier list is a *gate* — an unlisted
 protocol disappears however real it is — and it conflated "not reviewed" with "low quality". The
-`protocol` factor blends snapshot facts: TVL 50%, active markets 20%, chains 10%, Pendle's Prime flag
-20%, squeezed into 0.15–0.60 so size can never present itself as certainty. Consequences: no `Tier`, no
-"unknown" state, **no audit-link feature** (Pendle publishes none), and grouping by Pendle's own
-`protocol` string (normalised), never fuzzy symbols. The app makes **no protocol-level judgement** and
-never calls a protocol safe.
+`protocol` factor blends snapshot facts (total TVL, active markets, chain count, Pendle's Prime flag) and
+is capped below 1 so size can never present itself as certainty; the weights and bands live in
+`PROTOCOL_DEPTH` in `domain/protocol.ts`. Consequences: no `Tier`, no "unknown" state, **no audit-link
+feature** (Pendle publishes none), and grouping by Pendle's own `protocol` string (normalised), never
+fuzzy symbols. The app makes **no protocol-level judgement** and never calls a protocol safe.
 
 **Screening never hides a row silently.** `domain/screen.ts` returns exactly one attributable reason per
 hidden market; Discover prints the histogram with **Show all**, which bypasses quality bars but never
@@ -53,26 +56,24 @@ explicit choices (chain, collateral, search).
 
 **The detail page answers the decision, not the dataset.** `domain/decision.ts` turns the snapshot +
 score into a headline, a worked payout, an entry-cost estimate, a liquidity read, and two lists — *why it
-could work* / *what to watch*. Metrics that do not drive a decision (TVL, volume, underlying/YT APY, the
-raw fee rate, floating PT, history noise) move behind *Market data & contracts*. A metric with no decision
-meaning never sits in the headline grid.
+could work* / *what to watch*. Metrics that do not drive a decision move behind *Market data &
+contracts*. A metric with no decision meaning never sits in the headline grid.
 
-**The live-data panels say who each number belongs to.** These endpoints are all on the API host the app
-already calls, so they add no permission and no dependency:
+**The live-data panels say who each number belongs to.** The endpoints the detail page reads (see
+`api/pendle.ts`) are all on the API host the app already calls, so they add no permission and no
+dependency: yield provenance and rewards/points from the market payload, the limit-order book, PT-looping
+venues, daily history, and a live spot rate. Three rules govern them:
 
-| Signal | Endpoint |
-| --- | --- |
-| Yield provenance, rewards & points | `/v2/markets/all` (already fetched) |
-| Limit orders | `/v2/limit-orders/book/{chain}` |
-| Leverage / looping | `/v1/pt-looping/loop/pts/{chain}/{pt}/looping` |
-| Long-range history | `/v3/{chain}/markets/{addr}/historical-data?time_frame=day` |
-| Live rate | `/v1/sdk/{chain}/markets/{addr}/swapping-prices` |
+- **rewards state who receives them** — the LP/YT groups and PENDLE emissions are not the PT holder's, and
+  nothing sums them into "your yield";
+- **the order book is rate-only** — the payload's sizes are on undocumented scales, so no dollar depth is
+  invented;
+- **looping is Pendle's estimate** — re-stating its own identity (`fixed × L − borrow × (L−1)`) with
+  liquidation risk and Pendle's risk panel beside it.
 
-Three rules: **rewards state who receives them** (LP/YT groups and PENDLE emissions are not the PT
-holder's); **the order book is rate-only** (the payload's sizes are on undocumented scales, so no dollar
-depth is invented); **looping is Pendle's estimate**, re-stating its own identity
-(`fixed × L − borrow × (L−1)`) with liquidation risk and Pendle's risk panel beside it. Daily history is
-**not** fed to the stability factor — the score is calibrated on the recent hourly regime.
+Daily history is **not** fed to the stability factor: the score is calibrated on the recent hourly regime.
+A new signal follows the same path: normalise it in `api/normalize.ts`, consume it in a pure module, add a
+`tests/normalize.test.ts` case, and cover the network shape in `PF_LIVE=1 npm test`.
 
 ## The fee identity
 
@@ -83,11 +84,11 @@ reconstruct the swap fee:
 fee ≈ Σ over AMM legs  feeRate × notional × daysToMaturity / 365
 ```
 
-Found by measurement: the fee was a flat 4.01 bps of notional at $5k/$50k/$500k, while `feeRate` is
-20.49 bps — the ratio is `daysToMaturity/365`, i.e. Pendle charges on the annualised implied rate it
-moves. So `feeRate × notional` overstates the fee ~5×. Verified against the API on eight markets
-(9.8–40.9 bps, 23–170 days) to within 0.4%, and a `roll-over-pt` fee matched the sum of its two legs.
-Bundled limit-order fills skip the AMM fee, which is why the UI shows both numbers.
+Pendle charges its AMM fee on the annualised implied rate it moves, so `feeRate × notional` on its own
+overstates the fee and longer-dated paper costs more at the same size. Bundled limit-order fills skip the
+AMM fee, which is why the UI shows the SDK's number next to ours rather than only ours. The reconstruction
+is asserted per leg in `tests/route.test.ts`, and kept within 5% of the SDK's fee on a real market by
+`PF_LIVE=1 npm test`.
 
 ## The maturity plan
 
@@ -99,16 +100,12 @@ action, not an AMM swap — so a maturity roll is not a round trip. Rows are lab
 
 ## Caching
 
-| Data | TTL | Where |
-| --- | --- | --- |
-| markets | 5 min | memory + `chrome.storage` |
-| history | 30 min | `chrome.storage` (12 most recent) |
-| benchmark | 6 h | `chrome.storage` |
-| native token price | 10 min | `chrome.storage` |
-| detail extras (book, looping, long history, live) | 1–30 min | memory |
-| convert quotes | never | — (a quote is point-in-time; staleness is shown) |
+Markets, history, the benchmark and the native price are cached memory + `chrome.storage`; the detail
+extras (order book, looping, long history, live rate) are memory-only with short TTLs; convert quotes are
+**never** cached because a quote is point-in-time and its staleness is shown. `SingleFlight` de-duplicates
+and holds the in-memory TTL, and `mapLimit` bounds chain concurrency. The constants live in
+`api/client.ts`, and `storage/*` bounds the persisted history cache.
 
-`SingleFlight` de-duplicates and holds the in-memory TTL; `mapLimit(…, 3, …)` bounds chain concurrency.
 **No scheduler:** no `alarms`, no polling — fetching starts when a human opens the panel or presses ⟳.
 Pendle's `isActive` still returns expired markets, so they are dropped at the snapshot boundary with the
 count surfaced rather than hidden.
@@ -129,14 +126,20 @@ assets are generated (`npm run brand`), not hand-drawn.
 
 ## Docs that cannot drift
 
-The **Method** view is generated from the same exported constants the scorer uses. `tests/score.test.ts`
-asserts every factor has a doc block, the weights sum to 1, the prose quotes the real thresholds, and
-every flag has an explanation. Changing a threshold without its explanation fails CI.
+The **Method** view is generated from the same exported constants the scorer uses, and
+`tests/score.test.ts` asserts every factor has a doc block, the weights sum to 1, the prose quotes the real
+thresholds, and every flag has an explanation. `tests/docs.test.ts` keeps the local links and screenshots
+in the markdown honest.
+
+Beyond those guards, the rule is structural: **the docs describe intent and point at the code for
+values.** A weight, threshold, TTL or endpoint belongs in one module and in the Method view — not copied
+here — so changing behaviour does not mean hunting down prose.
 
 ## Security model
 
-MV3; `storage` + `sidePanel` and exactly two `host_permissions`. No remote code or `eval`; no wallet APIs
-or signing (quotes go to a burn address). All persisted data is local.
+MV3; two permissions and two `host_permissions`, both declared in `public/manifest.json` and locked by
+`tests/manifest.test.ts`. No remote code or `eval`; no wallet APIs or signing (quotes go to a burn
+address). All persisted data is local.
 
 ## Error behaviour
 
@@ -157,8 +160,9 @@ Each is one file with tests next to it.
 
 Recorded rather than silently decided:
 
-1. **Should `safe` be reachable?** Few markets clear stable + ≥$5M + ≥60d + ≥1pp, so the top reads
-   `balanced`. Loosen the bar, or rename the verdicts?
+1. **Should `safe` be reachable?** With today's listings few markets clear its bar, so the top of the list
+   reads `balanced`. That may be correct and still look broken to a newcomer. Options: loosen the bar, or
+   rename the verdicts.
 2. **Is the peg bar right for redemption-value assets?** Yield wrappers legitimately trade above $1, but a
    protocol that can redeem below par arguably needs a tighter bar.
 3. **Benchmark choice.** The Treasury-Notes average is official and keyless but lags the live curve;
@@ -166,4 +170,5 @@ Recorded rather than silently decided:
 4. **Can protocol depth be measured better than by size?** TVL and market count are lagging, gameable
    proxies.
 5. **How much should points/airdrop programs be surfaced?** Shown as context, never scored as yield.
-6. **Multi-chain default.** Only Ethereum is on by default; is Arbitrum's breadth worth the refresh cost?
+6. **Chain set.** Ethereum and Arbitrum are on by default (the two deepest); more chains cost refresh
+   budget. Is that the right default?

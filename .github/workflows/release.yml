@@ -1,0 +1,47 @@
+name: Release
+
+# Tag a commit `vX.Y.Z` matching `public/manifest.json` to publish a Chrome Web
+# Store-ready zip, built and tested by the same steps CI verifies. Uses only the
+# first-party actions and the preinstalled `gh`, so there is no third-party
+# action to trust.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - name: Check the tag matches the manifest version
+        run: |
+          version=$(node -p "require('./public/manifest.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match public/manifest.json v$version" >&2
+            exit 1
+          fi
+
+      - name: Package the extension
+        run: |
+          cd dist
+          zip -r "../pendle-frens-${GITHUB_REF_NAME}.zip" .
+          cd ..
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "pendle-frens-${GITHUB_REF_NAME}.zip" --generate-notes

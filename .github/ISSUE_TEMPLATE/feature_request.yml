@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a change or a new signal.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Small and specific is easier to ship than broad. Please read
+        [docs/DESIGN.md](https://github.com/zhouzhuojie/pendle-frens/blob/main/docs/DESIGN.md)
+        first — some odd-looking behaviour is deliberate, and the reason is recorded there.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation you are in, not just the feature you want.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints
+      description: >
+        This project deliberately ships zero runtime dependencies, no telemetry,
+        a read-only surface and a minimal permission set.
+      options:
+        - label: >
+            I understand this may be declined if it needs a new permission, a
+            runtime dependency, or telemetry.
+          required: false

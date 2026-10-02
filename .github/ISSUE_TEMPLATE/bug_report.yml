@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in the panel is wrong or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not paste API keys, wallet addresses or
+        anything else private — the panel should never see them anyway.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the side panel on ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: The version on chrome://extensions, or the git commit.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Chrome version and OS
+      placeholder: Chrome 120 on Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output
+      description: Any errors from the panel or the service worker (DevTools → Console).
+      render: shell
+    validations:
+      required: false

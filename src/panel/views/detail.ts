@@ -16,6 +16,8 @@ import { analyzeHistory, historySpanDays } from '../../lib/domain/history';
 import { chainName } from '../../lib/domain/chains';
 import { buildDecisionBrief, type DecisionBrief } from '../../lib/domain/decision';
 import { VERDICT_RULE } from '../../lib/domain/score';
+import { normalizeProtocol } from '../../lib/domain/protocol';
+import { nameVariantHint, trancheHint } from '../../lib/domain/tranche';
 import { rangePosition, rewardBadges, yieldProvenance, type ProvenanceRow } from '../../lib/domain/rewards';
 import { readBook } from '../../lib/domain/book';
 import { netApyAtMaxLeverage, readLooping } from '../../lib/domain/looping';
@@ -73,6 +75,7 @@ export function renderDetail(app: App, marketId: string): HTMLElement {
               { class: 'card-sub' },
               chip(market.protocol, 'muted'),
               chip(chainName(market.chainId), 'muted'),
+              trancheLabelFor(app, market),
               market.isPrime ? chip('Prime', 'good') : null,
               market.isVolatile ? chip('Variable underlying', 'warn') : null,
               verdictChip(score.verdict),
@@ -727,6 +730,46 @@ function marketDataPanel(market: Market, extras: MarketExtras, remoteLogos: bool
     summary: `${formatCompactUsd(market.tvlUsd)} TVL · ${formatCompactUsd(market.tradingVolumeUsd)} 24h`,
     children,
   });
+}
+
+/* -------------------------------- tranche --------------------------------- */
+
+/**
+ * A subtle, name-derived tranche hint. See `domain/tranche.ts`: the app keeps
+ * no registry and no curation, so this only ever reports what the ticker spells
+ * out — the `sr*`/`jr*` convention, the words senior/junior/mezzanine, or the
+ * bond-style `++`. A marker alone is enough to name the position the ticker
+ * encodes (`srNUSD`, `USD0++`); it is never enough to order an unmarked pair,
+ * and those get the neutral "name variant of" note instead. That note is a fact
+ * about the names and not a claim about seniority: sUSDe and wstUSR land there
+ * because they are wrappers, so it must not read as a tranche.
+ */
+function trancheLabelFor(app: App, market: Market): HTMLElement | null {
+  const symbol = market.underlyingAsset.symbol;
+  const protocol = normalizeProtocol(market.protocol);
+  const siblings = app
+    .markets()
+    .filter((candidate) => candidate.id !== market.id && normalizeProtocol(candidate.protocol) === protocol)
+    .map((candidate) => candidate.underlyingAsset.symbol);
+
+  const tranche = trancheHint(symbol, siblings);
+  if (tranche) {
+    return el('span', {
+      class: 'chip chip-muted',
+      text: tranche.position === 'senior' ? 'Senior tranche' : 'Junior tranche',
+      title: `From the ticker “${tranche.marker}”${tranche.counterpart ? ` · opposite leg ${tranche.counterpart}` : ''}. Name pattern only — not a risk verdict; the app keeps no tranche registry.`,
+    });
+  }
+
+  const variant = nameVariantHint(symbol, siblings);
+  if (variant) {
+    return el('span', {
+      class: 'chip chip-muted',
+      text: `name variant of ${variant.peer}`,
+      title: `Shares a name base with ${variant.peer} under ${market.protocol} — a name pattern only, and wrappers (staked, wrapped) look the same. The ticker does not say which leg, if any, is senior; the app keeps no tranche registry.`,
+    });
+  }
+  return null;
 }
 
 /* -------------------------------- helpers -------------------------------- */

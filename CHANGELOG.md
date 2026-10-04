@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A name-derived tranche hint on the market detail page: the ticker's own `sr*`/`jr*`, senior/junior/mezzanine or
+  bond-style `++` pattern, plus a neutral "name variant of" note for unmarked pairs such as `reUSD`/`reUSDe`. It reads
+  the name only — no registry, no curation, and never a risk verdict.
+
 ## [1.0.1] - 2026-10-02
 
 ### Added

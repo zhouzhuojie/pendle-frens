@@ -11,7 +11,7 @@ import { App, type AppState } from '../src/panel/app';
 import { DEFAULT_SETTINGS } from '../src/lib/storage/store';
 import { resolveBenchmark } from '../src/lib/api/treasury';
 import type { EntrySimulation, ExitSimulation, HistoryPoint, MarketSnapshot, RollSimulation, FavoriteItem } from '../src/lib/domain/types';
-import { makeMarket, makeQuote, makeRoute } from './fixtures';
+import { makeAsset, makeMarket, makeQuote, makeRoute } from './fixtures';
 
 const marketA = makeMarket({
   id: '1-0xa',
@@ -440,6 +440,42 @@ describe('side panel rendering', () => {
     // plainly that it makes no protocol-level judgement.
     expect(view.textContent).toContain('Protocol depth — measured, not judged');
     expect(view.textContent).toContain('size and breadth, never trust');
+  });
+
+  it('names the tranche the ticker spells out, and never guesses one from an unmarked pair', () => {
+    const market = (symbol: string) =>
+      makeMarket({
+        id: `1-0x${symbol.toLowerCase()}`,
+        address: `0x${symbol.toLowerCase()}`,
+        name: `${symbol} market`,
+        protocol: 're.xyz',
+        underlyingAsset: makeAsset({
+          id: `1-0x${symbol.toLowerCase()}`,
+          address: `0x${symbol.toLowerCase()}`,
+          symbol,
+        }),
+      });
+    const senior = market('srUSDe');
+    const junior = market('jrUSDe');
+    const variant = market('reUSDe');
+    app.ingestSnapshot({
+      ...snapshot,
+      chains: [{ ...snapshot.chains[0]!, markets: [senior, junior, variant, market('reUSD')] }],
+    });
+
+    app.state.detailMarketId = senior.id;
+    app.render();
+    expect(view.textContent).toContain('Senior tranche');
+    // The chip quotes the ticker and names the leg that confirms the convention.
+    expect(view.querySelector('.chip-muted[title*="From the ticker \u201csr\u201d"]')).not.toBeNull();
+    expect(view.querySelector('.chip-muted[title*="opposite leg jrUSDe"]')).not.toBeNull();
+
+    // reUSDe shares a base with reUSD but encodes no position: the note stays a
+    // statement about the names.
+    app.state.detailMarketId = variant.id;
+    app.render();
+    expect(view.textContent).toContain('name variant of reUSD');
+    expect(view.textContent).not.toContain('Junior tranche');
   });
 
   it('opens the detail page on the decision, not a wall of metrics', () => {
